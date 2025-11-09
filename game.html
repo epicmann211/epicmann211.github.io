@@ -3,576 +3,187 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>PeerJS Platformer — Multiplayer (GitHub Pages)</title>
+<title>PeerJS Platformer (Fixed Smooth Jump)</title>
 <style>
-  :root{--bg:#0b1720;--panel:#08151a;--accent:#2dd4bf;--muted:#8fb9c6}
-  *{box-sizing:border-box}
-  body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#03131a,#071820);color:#e6f1ff}
-  .wrap{max-width:1100px;margin:14px auto;padding:12px;display:grid;grid-template-columns:1fr 360px;gap:12px}
-  .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(0,0,0,0.02));padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
-  canvas{width:100%;height:520px;background:linear-gradient(180deg,#07202a,#041018);display:block;border-radius:8px}
-  label{font-size:13px;color:var(--muted)}
-  input,button,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:#071526;color:#e6f1ff;margin-top:6px}
-  .row{display:flex;gap:8px}
-  .small{width:48%}
-  .muted{color:var(--muted);font-size:13px}
-  .players{margin-top:8px}
-  .player-item{display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;background:rgba(255,255,255,0.01);margin-bottom:6px}
-  .dot{width:14px;height:14px;border-radius:50%}
-  #chatLog{height:140px;overflow:auto;border-radius:6px;padding:8px;background:#031a1c}
-  footer{margin-top:12px;font-size:12px;color:#9fb9c6}
-  .controls{display:flex;gap:8px;margin-top:8px}
-  .btn{background:var(--accent);color:#022;padding:8px;border-radius:8px;border:0;cursor:pointer}
-  .status{font-size:13px;color:var(--muted);margin-top:8px}
+body{margin:0;font-family:sans-serif;background:#071820;color:#e6f1ff;display:flex;gap:10px;flex-wrap:wrap;padding:10px}
+canvas{background:#041018;border:1px solid #0af;border-radius:6px}
+aside{width:320px;max-width:100%;background:#08151a;padding:10px;border-radius:8px}
+input,button{width:100%;margin:4px 0;padding:6px;border-radius:6px;border:none}
+button{background:#0af;color:#022;font-weight:bold;cursor:pointer}
+#chatLog{height:150px;overflow:auto;background:#031a1c;border-radius:6px;padding:6px;margin-bottom:4px}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="card">
-    <h2>Multiplayer Game</h2>
-    <a href="./index.html">Home</a>
-    <canvas id="game" width="900" height="520"></canvas>
-    <div class="muted" style="margin-top:8px">Controls: ← → to move, Space to jump. Host must host the room (check Host) and keep the tab open.</div>
-    <div class="controls">
-      <div class="muted">Move: ←/→ | Jump: Space</div>
-      <div style="margin-left:auto" class="muted">Sync: realtime (host relay)</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <label>Room ID</label>
-    <input id="roomId" placeholder="room name (no spaces)" />
-    <label style="margin-top:8px">Your name</label>
-    <input id="name" placeholder="Your name" />
-    <label style="margin-top:8px"><input type="checkbox" id="isHost" /> Host this room</label>
-    <div class="row" style="margin-top:8px">
-      <button id="joinBtn" class="btn">Create / Join Room</button>
-      <button id="leaveBtn" style="width:120px">Leave</button>
-    </div>
-
-    <div style="margin-top:10px">
-      <div class="muted">Shareable link:</div>
-      <input id="shareLink" readonly />
-    </div>
-
-    <div class="status" id="status">idle</div>
-
-    <div class="players" id="playersList"><div class="muted">Players in room:</div></div>
-
-    <div style="margin-top:8px">
-      <label>Chat</label>
-      <div id="chatLog"></div>
-      <input id="chatIn" placeholder="Type message and press Enter" />
-    </div>
-
-    <footer>Uses PeerJS public broker for signaling with STUN/TURN fallback. Host must remain open (acts as relay).</footer>
-  </div>
-</div>
-
-<!-- PeerJS CDN -->
+<canvas id="game" width="900" height="520"></canvas>
+<aside>
+  <h3>PeerJS Multiplayer Platformer</h3>
+  <label>Room ID</label><input id="roomId" placeholder="room">
+  <label>Name</label><input id="name" placeholder="your name">
+  <label><input type="checkbox" id="isHost"> Host this room</label>
+  <button id="joinBtn">Join / Host</button>
+  <div id="status">idle</div>
+  <div><input id="shareLink" readonly></div>
+  <h4>Chat</h4>
+  <div id="chatLog"></div>
+  <input id="chatIn" placeholder="message (Enter to send)">
+</aside>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-/*
-  PeerJS platformer (single-file)
-  - Host mode: peer ID === roomId (host keeps tab open)
-  - Clients connect to host by connecting to host's peer ID
-  - Host relays state to all clients (simple approach, host is hub)
-  - Clients and host both render the game and update positions based on incoming state
-  - Retry logic when connecting fails (connect to host)
-*/
+const c=document.getElementById('game'),x=c.getContext('2d');
+const statusEl=document.getElementById('status');
+const chatLog=document.getElementById('chatLog');
+const chatIn=document.getElementById('chatIn');
+const roomIn=document.getElementById('roomId');
+const nameIn=document.getElementById('name');
+const hostChk=document.getElementById('isHost');
+const joinBtn=document.getElementById('joinBtn');
+const share=document.getElementById('shareLink');
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const roomIdInput = document.getElementById('roomId');
-const nameInput = document.getElementById('name');
-const isHostCheckbox = document.getElementById('isHost');
-const joinBtn = document.getElementById('joinBtn');
-const leaveBtn = document.getElementById('leaveBtn');
-const statusEl = document.getElementById('status');
-const shareLink = document.getElementById('shareLink');
-const playersListEl = document.getElementById('playersList');
-const chatLog = document.getElementById('chatLog');
-const chatIn = document.getElementById('chatIn');
+let peer,connections={},players={},myId,myColor=randomColor(),isHost=false,roomId="";
+const platforms=[{x:0,y:480,w:900,h:40},{x:60,y:380,w:160,h:16},{x:260,y:320,w:140,h:16},{x:460,y:260,w:130,h:16},{x:640,y:360,w:180,h:16},{x:340,y:440,w:220,h:16}];
+const GRAV=1200,MOVE=220,JUMP=480,DT=1/60;
+let keys={},lastSent=0;
 
-let peer = null;
-let connections = {}; // host: clientId -> DataConnection ; client: hostId -> connection stored in connections[hostId]
-let players = {}; // peerId -> player object {id,name,x,y,vx,vy,color,onGround,lastSeen}
-let myId = null;
-let myColor = randomColor();
-let keys = {};
-let isHost = false;
-let roomId = '';
-let sendThrottle = 50; // ms
-let lastSent = 0;
-let peerOptions = {
-  debug: 0,
-  // Use default PeerJS cloud broker but include STUN/TURN candidates for ICE
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      // free TURN example (availability not guaranteed) — keep optional
-      { urls: 'turn:relay1.expressturn.com:3478', username: 'efree', credential: 'free' }
-    ]
-  },
-  // host/port/path not set so we use PeerJS defaults (cloud)
+function randomColor(){return`hsl(${Math.random()*360} 70% 50%)`;}
+function log(m){const d=document.createElement('div');d.textContent=m;chatLog.appendChild(d);chatLog.scrollTop=chatLog.scrollHeight;}
+function setStatus(s){statusEl.textContent=s;}
+window.addEventListener('keydown',e=>{if(e.code==='Space')e.preventDefault();keys[e.code]=true;});
+window.addEventListener('keyup',e=>keys[e.code]=false);
+
+joinBtn.onclick=()=>{
+  roomId=roomIn.value.trim();if(!roomId)return alert("Enter room ID");
+  isHost=hostChk.checked;
+  startPeer();
 };
 
-// parse room from URL
-const urlParams = new URLSearchParams(location.search);
-if(urlParams.get('room')) roomIdInput.value = urlParams.get('room');
-
-function setStatus(s){ statusEl.textContent = s; }
-function addChat(text){ const d=document.createElement('div'); d.textContent = text; chatLog.appendChild(d); chatLog.scrollTop = chatLog.scrollHeight; }
-
-// join / leave UI
-joinBtn.addEventListener('click', ()=> {
-  roomId = roomIdInput.value.trim();
-  if(!roomId){ alert('Enter a room id'); return; }
-  isHost = isHostCheckbox.checked;
-  startPeer(roomId, isHost);
-});
-leaveBtn.addEventListener('click', ()=> {
-  cleanup();
-  setStatus('left');
-  shareLink.value = '';
-});
-
-// chat
-chatIn.addEventListener('keydown',(e)=> {
-  if(e.key === 'Enter' && chatIn.value.trim()){
-    const text = chatIn.value.trim();
-    broadcast({type:'chat', from: myId, name: nameInput.value||myId, text});
-    addChat('you: '+text);
-    chatIn.value = '';
+chatIn.onkeydown=e=>{
+  if(e.key==='Enter'&&chatIn.value.trim()){
+    const msg={type:'chat',from:myId,name:nameIn.value||myId,text:chatIn.value.trim()};
+    send(msg);
+    if(isHost)broadcast(msg,myId);
+    log("you: "+chatIn.value.trim());
+    chatIn.value="";
   }
-});
+};
 
-// create peer (host will set id=roomId)
-function startPeer(room, hostMode){
-  setStatus('creating peer...');
-  roomId = room;
-  isHost = hostMode;
-  // construct peer with options and, if host, assign explicit id
-  try {
-    peer = new Peer(isHost ? roomId : undefined, peerOptions);
-  } catch(err){
-    setStatus('Peer creation failed: '+err);
-    console.error(err);
-    return;
-  }
-
-  peer.on('open', id => {
-    myId = id;
-    setStatus('peer open: '+id);
-    // make local player
-    players[id] = createPlayer(id, nameInput.value || (isHost ? 'Host' : 'Player-'+id.slice(-4)), myColor);
-    renderPlayersUI();
-    // share link
-    const link = location.pathname + '?room=' + encodeURIComponent(roomId);
-    shareLink.value = location.origin + link;
-
-    if(isHost){
-      setupHost();
-    } else {
-      setStatus('ready — connecting to host...');
-      connectToHostWithRetry(roomId, 5, 1000);
-    }
+function startPeer(){
+  peer=new Peer(isHost?roomId:undefined,{config:{iceServers:[{urls:'stun:stun.l.google.com:19302'}]}});
+  peer.on('open',id=>{
+    myId=id;
+    players[id]=newPlayer(id,nameIn.value||'player',myColor);
+    share.value=location.origin+location.pathname+"?room="+encodeURIComponent(roomId);
+    setStatus("Peer open: "+id);
+    if(isHost){setStatus("Hosting "+roomId);}else connectToHost();
   });
-
-  peer.on('connection', conn => {
-    // always allow connections (host will manage)
-    if(isHost) handleIncomingConnection(conn);
-    else {
-      // If not host, incoming connections are unexpected; close
-      console.warn('Unexpected incoming connection (not host):', conn.peer);
-      conn.on('error', ()=>{}); try{ conn.close(); }catch(e){}
-    }
+  peer.on('connection',c=>{
+    if(!isHost){c.close();return;}
+    connections[c.peer]=c;
+    c.on('data',d=>onData(c.peer,d));
+    c.on('close',()=>{delete connections[c.peer];delete players[c.peer];});
+    c.on('open',()=>c.send({type:'welcome',players:Object.values(players)}));
   });
-
-  peer.on('disconnected', ()=> setStatus('peer disconnected'));
-  peer.on('error', err => {
-    console.error('peer error', err);
-    setStatus('peer error: '+(err && err.type ? err.type : err));
-  });
+  peer.on('error',e=>setStatus("peer error: "+e.type));
 }
 
-// Host setup: accept connections and relay messages
-function setupHost(){
-  setStatus('hosting room: '+roomId);
-  // peer.on('connection', handleIncomingConnection) assigned above
-}
-
-// Accept incoming client connection (host only)
-function handleIncomingConnection(conn){
-  const id = conn.peer;
-  connections[id] = conn;
-  setStatus('client connected: '+id);
-  console.log('client connected', id);
-  conn.on('data', data => {
-    try{ handleMessage(id, data); } catch(e){ console.warn('data handle err',e); }
+function connectToHost(){
+  const conn=peer.connect(roomId);
+  connections[roomId]=conn;
+  conn.on('open',()=>{
+    setStatus("Connected to host");
+    conn.send({type:'join',id:myId,name:nameIn.value||myId,color:myColor});
   });
-  conn.on('close', ()=> {
-    delete connections[id];
-    delete players[id];
-    broadcast({type:'player-left', id});
-    renderPlayersUI();
-    setStatus('client left: '+id);
-  });
-  conn.on('error', err => console.warn('conn error', err));
-  // send welcome (player list)
-  conn.on('open', ()=> {
-    conn.send({type:'welcome', players: Object.values(players)});
-  });
+  conn.on('data',d=>onData(roomId,d));
+  conn.on('error',()=>setStatus("connect error"));
 }
 
-// Clients: connect to host with retry
-function connectToHostWithRetry(hostId, retries=5, delay=1000){
-  if(!peer || !peer.open) {
-    setStatus('peer not ready yet — wait and retry');
-    // try again
-    setTimeout(()=>connectToHostWithRetry(hostId, retries, delay), delay);
-    return;
-  }
-  setStatus('connecting to host: '+hostId);
-  tryConnect();
-  function tryConnect(attempt=1){
-    const conn = peer.connect(hostId, {reliable:true});
-    connections[hostId] = conn;
-    let opened = false;
-    conn.on('open', ()=> {
-      opened = true;
-      setStatus('connected to host');
-      // announce ourselves
-      conn.send({type:'join', id: myId, name: nameInput.value||myId, color: myColor, x: players[myId].x, y: players[myId].y});
-      conn.on('data', data => handleMessage(hostId, data));
-    });
-    conn.on('error', err => {
-      console.warn('connect error',err);
-      if(!opened){
-        if(attempt < retries){
-          setStatus('connect failed, retry '+(attempt+1)+'/'+retries);
-          setTimeout(()=> tryConnect(attempt+1), delay);
-        } else {
-          setStatus('Could not connect to host — make sure host is online and ID is correct.');
-        }
-      }
-    });
-    conn.on('close', ()=> {
-      setStatus('connection to host closed');
-      delete connections[hostId];
-    });
-  }
+function newPlayer(id,name,color){
+  return {id,name,color,x:Math.random()*600+100,y:100,vx:0,vy:0,onGround:false};
 }
 
-// Handle messages (both host and client)
-function handleMessage(fromId, data){
-  if(typeof data === 'string'){
-    try{ data = JSON.parse(data); } catch(e){ /* ok maybe plain */ }
-  }
-  if(!data || !data.type) return;
-
-  if(data.type === 'join' && isHost){
-    // new client announces itself
-    players[data.id] = createPlayer(data.id, data.name || data.id, data.color || randomColor());
-    players[data.id].x = data.x || players[data.id].x;
-    players[data.id].y = data.y || players[data.id].y;
-    players[data.id].lastSeen = Date.now();
-    // notify existing clients about this new player
-    broadcast({type:'player-joined', player: players[data.id]});
-    // send updated list to the joiner
-    const conn = connections[data.id];
-    if(conn && conn.open) conn.send({type:'welcome', players: Object.values(players)});
-    renderPlayersUI();
-    setStatus('player joined: '+data.id);
-  } else if(data.type === 'welcome'){
-    // client receives full list from host
-    (data.players || []).forEach(p => {
-      players[p.id] = p;
-      players[p.id].lastSeen = Date.now();
-    });
-    renderPlayersUI();
-    setStatus('received players list');
-  } else if(data.type === 'player-joined'){
-    players[data.player.id] = data.player;
-    players[data.player.id].lastSeen = Date.now();
-    renderPlayersUI();
-  } else if(data.type === 'player-left'){
-    delete players[data.id];
-    renderPlayersUI();
-  } else if(data.type === 'state'){
-    // Host receives client state or host may broadcast state
-    if(isHost){
-      // update stored state for that client then relay to others (except sender)
-      players[data.id] = players[data.id] || createPlayer(data.id, data.name || data.id, data.color || randomColor());
-      players[data.id].x = data.x;
-      players[data.id].y = data.y;
-      players[data.id].vx = data.vx;
-      players[data.id].vy = data.vy;
-      players[data.id].lastSeen = Date.now();
-      // relay
-      broadcast(data, data.id);
-    } else {
-      // client receives state about other players
-      if(data.id && data.id !== myId){
-        players[data.id] = players[data.id] || createPlayer(data.id, data.name || data.id, data.color || randomColor());
-        players[data.id].x = data.x;
-        players[data.id].y = data.y;
-        players[data.id].vx = data.vx;
-        players[data.id].vy = data.vy;
-        players[data.id].lastSeen = Date.now();
-      }
-    }
-  } else if(data.type === 'chat'){
-    // host relays chat to everyone
-    if(isHost){
-      broadcast(data);
-      addChat((data.name||data.from||'')+': '+data.text);
-    } else {
-      addChat((data.name||data.from||'')+': '+data.text);
-    }
-  }
-}
-
-// Broadcast helper (host relays to all clients; client sends to host)
-function broadcast(obj, exceptId){
+function broadcast(data,except){
   if(isHost){
-    // send to all clients except exceptId
-    Object.keys(connections).forEach(pid => {
-      if(pid === exceptId) return;
-      const c = connections[pid];
-      if(c && c.open) try{ c.send(obj); } catch(e){ console.warn('send fail', e); }
-    });
-  } else {
-    // send directly to host connection if present
-    const hostConn = connections[roomId];
-    if(hostConn && hostConn.open) {
-      try{ hostConn.send(obj); } catch(e){ console.warn('send fail', e); }
+    for(const pid in connections){if(pid===except)continue;
+      const c=connections[pid];if(c.open)c.send(data);
     }
   }
-  // local processing for chat and relevant messages
-  if(obj.type === 'chat' && isHost) addChat((obj.name||obj.from||'')+': '+obj.text);
 }
 
-// Create a default player object
-function createPlayer(id, name, color){
-  return {
-    id,
-    name: name || id,
-    x: Math.random()*(canvas.width-120)+60,
-    y: Math.random()*(canvas.height-200)+60,
-    vx: 0, vy: 0,
-    color: color || randomColor(),
-    onGround: false,
-    lastSeen: Date.now()
-  };
+function send(data){
+  if(isHost)return; // host doesn’t send to itself
+  const c=connections[roomId];
+  if(c&&c.open)c.send(data);
 }
 
-// input
-window.addEventListener('keydown', e => {
-  if(e.code === 'Space') e.preventDefault();
-  keys[e.code] = true;
-});
-window.addEventListener('keyup', e => keys[e.code] = false);
-
-// basic platformer world
-const platforms = [
-  {x:0,y:480,w:900,h:40},           // ground
-  {x:60,y:380,w:160,h:16},
-  {x:260,y:320,w:140,h:16},
-  {x:460,y:260,w:130,h:16},
-  {x:640,y:360,w:180,h:16},
-  {x:340,y:440,w:220,h:16}
-];
-
-// physics constants
-const GRAV = 1200; // px/s^2
-const MOVE_SPEED = 220; // px/s
-const JUMP_SPEED = 480; // px/s
-const DT = 1/60;
-
-// game loop
-let last = performance.now();
-function gameLoop(now){
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-
-  // update local player physics & input
-  if(myId && players[myId]){
-    const p = players[myId];
-    // horizontal input
-    let ax = 0;
-    if(keys['ArrowLeft'] || keys['KeyA']) ax = -1;
-    if(keys['ArrowRight'] || keys['KeyD']) ax = 1;
-    p.vx = ax * MOVE_SPEED;
-    // jump (only when on ground)
-    if((keys['Space'] || keys['KeyW'] || keys['ArrowUp']) && p.onGround){
-      p.vy = -JUMP_SPEED;
-      p.onGround = false;
-    }
-    // apply gravity
-    p.vy += GRAV * dt;
-    // integrate
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-
-    // collisions with platforms
-    p.onGround = false;
-    for(const plat of platforms){
-      if(p.x + 12 > plat.x && p.x - 12 < plat.x + plat.w){
-        // vertical overlap
-        const prevY = p.y - p.vy * dt;
-        // landing
-        if(prevY + 16 <= plat.y && p.y + 16 >= plat.y && p.vy >= 0){
-          p.y = plat.y - 16;
-          p.vy = 0;
-          p.onGround = true;
-        }
+function onData(from,d){
+  if(typeof d==='string')try{d=JSON.parse(d);}catch{}
+  if(!d||!d.type)return;
+  if(d.type==='join'&&isHost){
+    players[d.id]=newPlayer(d.id,d.name,d.color);
+    broadcast({type:'player-joined',player:players[d.id]});
+    connections[d.id].send({type:'welcome',players:Object.values(players)});
+  }
+  else if(d.type==='welcome'){(d.players||[]).forEach(p=>players[p.id]=p);}
+  else if(d.type==='player-joined'){players[d.player.id]=d.player;}
+  else if(d.type==='state'){
+    if(isHost){
+      // host updates only remote player's state
+      if(d.id!==myId){
+        players[d.id]=players[d.id]||newPlayer(d.id,d.name,d.color);
+        Object.assign(players[d.id],d);
+        broadcast(d,d.id);
       }
-      // horizontal boundaries
-      if(p.y + 16 > plat.y && p.y - 16 < plat.y + plat.h){
-         if(p.x - 12 < plat.x) p.x = Math.max(p.x, plat.x - 12);
-         if(p.x + 12 > plat.x + plat.w) p.x = Math.min(p.x, plat.x + plat.w + 12);
+    }else{
+      // client receives other players (not self)
+      if(d.id!==myId){
+        players[d.id]=players[d.id]||newPlayer(d.id,d.name,d.color);
+        Object.assign(players[d.id],d);
       }
     }
-
-    // clamp to world
-    p.x = Math.max(12, Math.min(canvas.width-12, p.x));
-    p.y = Math.max(12, Math.min(canvas.height-12, p.y));
   }
+  else if(d.type==='chat'){log(`${d.name}: ${d.text}`);if(isHost)broadcast(d,from);}
+}
 
-  // send local state to host at throttle
-  if(myId && Date.now() - lastSent > sendThrottle){
-    const p = players[myId];
-    if(p){
-      const payload = {type:'state', id: myId, name: p.name, color: p.color, x: Math.round(p.x), y: Math.round(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy)};
-      if(isHost){
-        // host updates own stored state and broadcasts to everyone
-        players[myId] = Object.assign(players[myId] || {}, payload);
-        broadcast(payload);
-      } else {
-        // client send to host
-        const hostConn = connections[roomId];
-        if(hostConn && hostConn.open) try{ hostConn.send(payload); } catch(e){ console.warn('send fail', e); }
-      }
+function physics(p,dt){
+  let ax=0;if(keys['ArrowLeft']||keys['KeyA'])ax=-1;
+  if(keys['ArrowRight']||keys['KeyD'])ax=1;
+  p.vx=ax*MOVE;
+  if((keys['Space']||keys['ArrowUp']||keys['KeyW'])&&p.onGround){p.vy=-JUMP;p.onGround=false;}
+  p.vy+=GRAV*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
+  p.onGround=false;
+  for(const pl of platforms){
+    if(p.x+12>pl.x&&p.x-12<pl.x+pl.w){
+      const prevY=p.y-p.vy*dt;
+      if(prevY+16<=pl.y&&p.y+16>=pl.y&&p.vy>=0){p.y=pl.y-16;p.vy=0;p.onGround=true;}
     }
-    lastSent = Date.now();
   }
-
-  // render
-  render();
-
-  // prune stale players (optional)
-  const nowTs = Date.now();
-  Object.keys(players).forEach(pid => {
-    if(nowTs - players[pid].lastSeen > 60_000 && pid !== myId){ // 60s stale
-      delete players[pid];
-      renderPlayersUI();
-    }
-  });
-
-  requestAnimationFrame(gameLoop);
+  if(p.y>c.height-16){p.y=c.height-16;p.vy=0;p.onGround=true;}
+  p.x=Math.max(12,Math.min(c.width-12,p.x));
 }
-requestAnimationFrame(gameLoop);
 
-// render function
-function render(){
-  // background
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  // simple parallax sky
-  ctx.fillStyle = '#041e26'; ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  // draw platforms
-  ctx.fillStyle = '#2b6b6b';
-  for(const plat of platforms){
-    ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+function draw(){
+  x.fillStyle="#041e26";x.fillRect(0,0,c.width,c.height);
+  x.fillStyle="#2b6b6b";platforms.forEach(p=>x.fillRect(p.x,p.y,p.w,p.h));
+  for(const p of Object.values(players)){
+    x.fillStyle=p.color;x.fillRect(p.x-12,p.y-16,24,32);
+    x.fillStyle="#fff";x.fillText(p.name,p.x-ctxWidth(p.name)/2,p.y-20);
   }
-
-  // draw players
-  Object.values(players).forEach(p => {
-    drawPlayer(p, p.id === myId);
-  });
 }
+function ctxWidth(t){return x.measureText(t).width;}
 
-// draw single player
-function drawPlayer(p, highlight){
-  ctx.save();
-  ctx.beginPath();
-  ctx.fillStyle = p.color;
-  // draw as rounded rectangle (player)
-  const w = 24, h = 32;
-  roundRect(ctx, p.x - w/2, p.y - h/2, w, h, 6, true, false);
-  // name
-  ctx.fillStyle = '#fff';
-  ctx.font = '12px sans-serif';
-  ctx.fillText(p.name || p.id, p.x - (ctx.measureText(p.name || p.id).width / 2), p.y - h/2 - 6);
-  ctx.restore();
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  if(myId&&players[myId])physics(players[myId],dt);
+  if(myId&&Date.now()-lastSent>50){
+    const p=players[myId];
+    const data={type:'state',...p};
+    if(isHost)broadcast(data,myId);else send(data);
+    lastSent=Date.now();
+  }
+  draw();
+  requestAnimationFrame(loop);
 }
-
-function roundRect(ctx,x,y,w,h,r,fill,stroke){
-  if (typeof stroke === 'undefined') stroke = true;
-  if (typeof r === 'undefined') r = 5;
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);
-  ctx.arcTo(x+w,y,x+w,y+h,r);
-  ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r);
-  ctx.arcTo(x,y,x+w,y,r);
-  ctx.closePath();
-  if(fill) ctx.fill();
-  if(stroke) ctx.stroke();
-}
-
-// UI updates
-function renderPlayersUI(){
-  playersListEl.innerHTML = '<div class="muted">Players in room:</div>';
-  Object.values(players).forEach(p => {
-    const el = document.createElement('div'); el.className = 'player-item';
-    const dot = document.createElement('div'); dot.className='dot'; dot.style.background = p.color;
-    const nm = document.createElement('div'); nm.textContent = p.name || p.id;
-    el.appendChild(dot); el.appendChild(nm);
-    playersListEl.appendChild(el);
-  });
-}
-
-// helper: random HSL color
-function randomColor(){ return 'hsl('+Math.floor(Math.random()*360)+' 70% 50%)'; }
-
-// cleanup function
-function cleanup(){
-  try{
-    if(peer) peer.destroy();
-  }catch(e){}
-  peer = null;
-  connections = {};
-  players = {};
-  myId = null;
-  setStatus('left');
-}
-
-// handle unload
-window.addEventListener('beforeunload', ()=>{ if(peer) peer.destroy(); });
-
-// utility: addChat (and host relays)
-function addChat(text){
-  const d = document.createElement('div'); d.textContent = text; chatLog.appendChild(d); chatLog.scrollTop = chatLog.scrollHeight;
-}
-
-// When host receives join from client, host already handled in handleMessage; but client must send join after connection open
-// We ensure connectToHostWithRetry sends join
-
-// ensure local player's lastSeen updates
-setInterval(()=> {
-  if(myId && players[myId]) players[myId].lastSeen = Date.now();
-}, 1000);
-
-// Small UX: allow pressing Enter in room input to join
-roomIdInput.addEventListener('keydown',(e)=>{ if(e.key==='Enter') joinBtn.click(); });
-
-// debug: show peer errors on screen
-// (no changes required)
-
-// Done — ready.
-
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
