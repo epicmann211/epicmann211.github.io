@@ -3,118 +3,115 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Funny Ape Faces VR</title>
+<title>VR Music Game</title>
 <style>
   body { margin: 0; overflow: hidden; }
   #info { position: absolute; top: 10px; left: 10px; color: white; font-weight: bold; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; z-index: 10;}
+  #score { position: absolute; top: 10px; right: 10px; color: white; font-weight: bold; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px;}
 </style>
 </head>
 <body>
-<div id="info">Move: WASD | Jump: Space | VR: Enter VR</div>
+<div id="info">VR: Enter VR | Hit cubes to score points!</div>
+<div id="score">Score: 0</div>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 <script>
 const canvas = document.createElement("canvas");
 document.body.appendChild(canvas);
 const engine = new BABYLON.Engine(canvas, true);
 
-const createScene = function() {
+let score = 0;
+const scoreDiv = document.getElementById("score");
+
+const createScene = async function() {
     const scene = new BABYLON.Scene(engine);
-    scene.clearColor = new BABYLON.Color3(0.53,0.81,0.92); // Sky blue
+    scene.clearColor = new BABYLON.Color3(0.1,0.1,0.2);
 
     // Camera
-    const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 2, -5), scene);
+    const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 1.6, -5), scene);
     camera.attachControl(canvas, true);
 
-    // Lighting
+    // Light
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
     // Ground
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:50, height:50}, scene);
-    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.13,0.55,0.13);
-    ground.material = groundMat;
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:20, height:20}, scene);
+    ground.material = new BABYLON.StandardMaterial("groundMat", scene);
+    ground.material.diffuseColor = new BABYLON.Color3(0.05,0.05,0.1);
 
-    // Gorilla made of faces
-    const faceTextures = [
-        "https://i.imgur.com/U1X9F1F.png",
-        "https://i.imgur.com/7D6sP7b.png",
-        "https://i.imgur.com/5s5C5Cw.png"
-    ];
-
-    const gorilla = new BABYLON.TransformNode("gorilla", scene);
-
-    function createFaceCube(x,y,z){
-        const mat = new BABYLON.StandardMaterial("mat", scene);
-        const tex = faceTextures[Math.floor(Math.random()*faceTextures.length)];
-        mat.diffuseTexture = new BABYLON.Texture(tex, scene);
-        const cube = BABYLON.MeshBuilder.CreateBox("cube", {size:0.5}, scene);
+    // Music cubes
+    const cubes = [];
+    const colors = [BABYLON.Color3.Red(), BABYLON.Color3.Green(), BABYLON.Color3.Blue(), BABYLON.Color3.Yellow()];
+    for(let i=0;i<10;i++){
+        const cube = BABYLON.MeshBuilder.CreateBox("cube"+i, {size:0.5}, scene);
+        cube.position = new BABYLON.Vector3(Math.random()*8-4,1 + Math.random()*2, Math.random()*8-4);
+        const mat = new BABYLON.StandardMaterial("mat"+i, scene);
+        mat.diffuseColor = colors[i % colors.length];
         cube.material = mat;
-        cube.position.set(x,y,z);
-        cube.parent = gorilla;
+        cube.physicsImpostor = new BABYLON.PhysicsImpostor(cube, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, restitution:0.7}, scene);
+        cubes.push(cube);
     }
 
-    const gorillaStructure = [
-        [0,1,0],[0,1.5,0],[0,2,0],[0,2.5,0], // head
-        [-0.5,1,0],[0.5,1,0], // arms
-        [-0.5,0.5,0],[0.5,0.5,0],[0,0.5,0] // body
-    ];
+    // Audio
+    const music = new Audio("music.mp3");
+    music.loop = true;
+    music.volume = 0.5;
+    music.play().catch(()=>console.log("Autoplay blocked"));
 
-    gorillaStructure.forEach(pos => createFaceCube(...pos));
+    // Enable physics
+    scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.CannonJSPlugin());
 
-    // Movement
-    const keys = {};
-    window.addEventListener('keydown', e=> keys[e.code]=true);
-    window.addEventListener('keyup', e=> keys[e.code]=false);
+    // WebXR with hand models
+    const xr = await scene.createDefaultXRExperienceAsync({floorMeshes:[ground], optionalFeatures:["hand-tracking"]});
+    const xrInput = xr.input;
 
-    let velocityY = 0;
-    const gravity = -9.8;
-    const jumpStrength = 5;
+    xrInput.onControllerAddedObservable.add((controller)=>{
+        if(controller.pointer){
+            // Replace sphere with hand mesh
+            const handMesh = BABYLON.MeshBuilder.CreateBox("handVisual", {size:0.15}, scene);
+            handMesh.material = new BABYLON.StandardMaterial("handMat", scene);
+            handMesh.material.diffuseColor = BABYLON.Color3.White();
+            handMesh.parent = controller.pointer;
 
-    scene.onBeforeRenderObservable.add(()=>{
-        const dt = engine.getDeltaTime()/1000;
-        const speed = 5;
-
-        // WASD movement
-        if(keys['KeyW']) gorilla.position.z += speed*dt;
-        if(keys['KeyS']) gorilla.position.z -= speed*dt;
-        if(keys['KeyA']) gorilla.position.x -= speed*dt;
-        if(keys['KeyD']) gorilla.position.x += speed*dt;
-
-        // Jump
-        if(keys['Space'] && gorilla.position.y <= 0.5){
-            velocityY = jumpStrength;
+            controller.onMotionControllerInitObservable.add((motionController)=>{
+                motionController.onButtonStateChangeObservable.add((button)=>{
+                    if(button.pressed){
+                        cubes.forEach(cube=>{
+                            if(handMesh.intersectsMesh(cube,false)){
+                                // Bounce cube
+                                cube.physicsImpostor.applyImpulse(new BABYLON.Vector3(0,5,0), cube.getAbsolutePosition());
+                                // Play sound
+                                const beep = new Audio("music.mp3");
+                                beep.currentTime = 0;
+                                beep.play();
+                                // Add score
+                                score += 1;
+                                scoreDiv.innerText = "Score: " + score;
+                                // Visual feedback
+                                cube.material.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+                            }
+                        });
+                    }
+                });
+            });
         }
-
-        // Gravity
-        velocityY += gravity*dt;
-        gorilla.position.y += velocityY*dt;
-        if(gorilla.position.y < 0.5){
-            gorilla.position.y = 0.5;
-            velocityY = 0;
-        }
-
-        // Smooth camera follow
-        const targetPos = new BABYLON.Vector3(gorilla.position.x, gorilla.position.y + 2, gorilla.position.z - 5);
-        camera.position = BABYLON.Vector3.Lerp(camera.position, targetPos, 0.1);
-        camera.setTarget(gorilla.position);
     });
 
-    // WebXR
-    scene.createDefaultXRExperienceAsync({
-        floorMeshes: [ground]
-    }).then((xr)=>{
-        console.log("WebXR ready!");
-    }).catch(err=>{
-        console.warn("WebXR error:", err);
+    // Move cubes slowly in a floating pattern
+    scene.onBeforeRenderObservable.add(()=>{
+        const dt = engine.getDeltaTime()/1000;
+        cubes.forEach((cube, idx)=>{
+            cube.position.y += Math.sin(Date.now()/500 + idx) * 0.002;
+        });
     });
 
     return scene;
 };
 
-const scene = createScene();
+const scene = await createScene();
 engine.runRenderLoop(()=> scene.render());
-
 window.addEventListener('resize', ()=> engine.resize());
 </script>
+<script src="https://cdn.babylonjs.com/cannon.js"></script>
 </body>
 </html>
