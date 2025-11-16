@@ -1,94 +1,109 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Gorilla Tag Inspired VR</title>
+<meta charset="UTF-8" />
+<title>WebXR Gorilla Locomotion</title>
+<style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    canvas { width: 100%; height: 100%; display: block; }
+</style>
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/cannon.js"></script>
-<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 </head>
-<body style="margin:0; overflow:hidden;">
-<canvas id="renderCanvas"></canvas>
+
+<body>
+<canvas id="game"></canvas>
+
 <script>
-window.addEventListener('DOMContentLoaded', async function() {
-    const canvas = document.getElementById('renderCanvas');
-    const engine = new BABYLON.Engine(canvas, true);
+const canvas = document.getElementById("game");
+const engine = new BABYLON.Engine(canvas, true);
+const scene = new BABYLON.Scene(engine);
 
-    const scene = new BABYLON.Scene(engine);
-    scene.clearColor = new BABYLON.Color3(0.5, 0.8, 0.95);
-    
-    // Physics
-    scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.CannonJSPlugin());
+scene.createDefaultEnvironment({ enableGroundShadow: true });
 
-    // Camera (used for debugging in non-VR)
-    const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0,2,-5), scene);
-    camera.attachControl(canvas, true);
+const camera = new BABYLON.FreeCamera("cam", new BABYLON.Vector3(0, 1.6, 0), scene);
+camera.setTarget(BABYLON.Vector3.Zero());
 
-    // Light
-    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
+// Physics
+scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.AmmoJSPlugin());
 
-    // Ground
-    const ground = BABYLON.MeshBuilder.CreateGround("ground",{width:50, height:50},scene);
-    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, {mass:0, friction:0.5, restitution:0}, scene);
-    ground.material = new BABYLON.StandardMaterial("groundMat",scene);
-    ground.material.diffuseColor = new BABYLON.Color3(0.3,0.6,0.3);
+// -------------------------
+// PLAYER BODY (capsule)
+// -------------------------
+const bodyHeight = 1.2;
+const body = BABYLON.MeshBuilder.CreateCapsule("player", {
+    height: bodyHeight,
+    radius: 0.35
+}, scene);
+body.position.y = 1.0;
 
-    // Player capsule made of faces
-    const player = new BABYLON.TransformNode("player", scene);
-    const head = BABYLON.MeshBuilder.CreateBox("head",{size:0.5},scene);
-    head.position.y = 1.75;
-    head.parent = player;
-    head.material = new BABYLON.StandardMaterial("headMat",scene);
-    head.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
+body.physicsImpostor = new BABYLON.PhysicsImpostor(
+    body,
+    BABYLON.PhysicsImpostor.CapsuleImpostor,
+    { mass: 60, friction: 0.1, restitution: 0 },
+    scene
+);
 
-    const body = BABYLON.MeshBuilder.CreateBox("body",{width:0.6, height:1, depth:0.3},scene);
-    body.position.y = 1;
-    body.parent = player;
-    body.material = new BABYLON.StandardMaterial("bodyMat",scene);
-    body.material.diffuseColor = new BABYLON.Color3(0.7,0.2,0.2);
+// -------------------------
+// XR
+// -------------------------
+const xrHelper = await BABYLON.WebXRDefaultExperience.CreateAsync(scene);
+xrHelper.teleportation.dispose(); // REMOVE TELEPORTATION
+xrHelper.pointerSelection.detach(); // No ray laser
 
-    // Arm placeholders
-    const leftArm = BABYLON.MeshBuilder.CreateBox("leftArm",{width:0.15, height:0.7, depth:0.15},scene);
-    leftArm.position.set(-0.45,1.5,0);
-    leftArm.parent = player;
-    leftArm.material = new BABYLON.StandardMaterial("leftMat",scene);
-    leftArm.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
+let leftController = null;
+let rightController = null;
 
-    const rightArm = BABYLON.MeshBuilder.CreateBox("rightArm",{width:0.15, height:0.7, depth:0.15},scene);
-    rightArm.position.set(0.45,1.5,0);
-    rightArm.parent = player;
-    rightArm.material = new BABYLON.StandardMaterial("rightMat",scene);
-    rightArm.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
+// Track last hand positions
+let lastLeftPos = null;
+let lastRightPos = null;
 
-    // Physics impostor for player
-    player.physicsImpostor = new BABYLON.PhysicsImpostor(body, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, friction:0.5, restitution:0}, scene);
-
-    // WebXR experience
-    const xrHelper = await scene.createDefaultXRExperienceAsync({
-        floorMeshes: [ground]
-    });
-
-    // Arm-swing locomotion
-    const playerSpeed = 1.5; // tweak to feel right
-    scene.onBeforeRenderObservable.add(()=>{
-        if(!xrHelper.baseExperience.sessionManager.session) return;
-
-        const leftController = xrHelper.input.leftController;
-        const rightController = xrHelper.input.rightController;
-        if(leftController && rightController){
-            const lv = leftController.getLinearVelocity() || BABYLON.Vector3.Zero();
-            const rv = rightController.getLinearVelocity() || BABYLON.Vector3.Zero();
-            const movement = lv.add(rv).scale(-playerSpeed);
-            player.physicsImpostor.applyImpulse(movement, player.getAbsolutePosition());
-        }
-    });
-
-    engine.runRenderLoop(()=>{
-        scene.render();
-    });
-
-    window.addEventListener('resize',()=>{engine.resize();});
+xrHelper.input.onControllerAddedObservable.add(controller => {
+    if (controller.inputSource.handedness === "left") leftController = controller;
+    if (controller.inputSource.handedness === "right") rightController = controller;
 });
+
+// -------------------------
+// ARM-SWING MOVEMENT
+// -------------------------
+scene.onBeforeRenderObservable.add(() => {
+    const dt = engine.getDeltaTime() / 1000;
+
+    if (!xrHelper.baseExperience.state === BABYLON.WebXRState.IN_XR) return;
+
+    let movement = new BABYLON.Vector3(0, 0, 0);
+
+    // Left hand swing
+    if (leftController && leftController.grip) {
+        const pos = leftController.grip.position.clone();
+        if (lastLeftPos) {
+            const velocity = pos.subtract(lastLeftPos).scale(5);
+            movement.addInPlace(velocity);
+        }
+        lastLeftPos = pos.clone();
+    }
+
+    // Right hand swing
+    if (rightController && rightController.grip) {
+        const pos = rightController.grip.position.clone();
+        if (lastRightPos) {
+            const velocity = pos.subtract(lastRightPos).scale(5);
+            movement.addInPlace(velocity);
+        }
+        lastRightPos = pos.clone();
+    }
+
+    // Physics push
+    body.physicsImpostor.applyImpulse(
+        new BABYLON.Vector3(movement.x, 0, movement.z),
+        body.getAbsolutePosition()
+    );
+
+    // Attach camera to body position
+    camera.position = body.getAbsolutePosition().add(new BABYLON.Vector3(0, bodyHeight / 2, 0));
+});
+
+engine.runRenderLoop(() => scene.render());
 </script>
 </body>
 </html>
