@@ -1,189 +1,94 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>PeerJS Platformer (Fixed Smooth Jump)</title>
-<style>
-body{margin:0;font-family:sans-serif;background:#071820;color:#e6f1ff;display:flex;gap:10px;flex-wrap:wrap;padding:10px}
-canvas{background:#041018;border:1px solid #0af;border-radius:6px}
-aside{width:320px;max-width:100%;background:#08151a;padding:10px;border-radius:8px}
-input,button{width:100%;margin:4px 0;padding:6px;border-radius:6px;border:none}
-button{background:#0af;color:#022;font-weight:bold;cursor:pointer}
-#chatLog{height:150px;overflow:auto;background:#031a1c;border-radius:6px;padding:6px;margin-bottom:4px}
-</style>
+<meta charset="UTF-8">
+<title>Gorilla Tag Inspired VR</title>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/cannon.js"></script>
+<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 </head>
-<body>
-<canvas id="game" width="900" height="520"></canvas>
-<aside>
-  <h3>PeerJS Multiplayer Platformer</h3>
-  <label>Room ID</label><input id="roomId" placeholder="room">
-  <label>Name</label><input id="name" placeholder="your name">
-  <label><input type="checkbox" id="isHost"> Host this room</label>
-  <button id="joinBtn">Join / Host</button>
-  <div id="status">idle</div>
-  <div><input id="shareLink" readonly></div>
-  <h4>Chat</h4>
-  <div id="chatLog"></div>
-  <input id="chatIn" placeholder="message (Enter to send)">
-</aside>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<body style="margin:0; overflow:hidden;">
+<canvas id="renderCanvas"></canvas>
 <script>
-const c=document.getElementById('game'),x=c.getContext('2d');
-const statusEl=document.getElementById('status');
-const chatLog=document.getElementById('chatLog');
-const chatIn=document.getElementById('chatIn');
-const roomIn=document.getElementById('roomId');
-const nameIn=document.getElementById('name');
-const hostChk=document.getElementById('isHost');
-const joinBtn=document.getElementById('joinBtn');
-const share=document.getElementById('shareLink');
+window.addEventListener('DOMContentLoaded', async function() {
+    const canvas = document.getElementById('renderCanvas');
+    const engine = new BABYLON.Engine(canvas, true);
 
-let peer,connections={},players={},myId,myColor=randomColor(),isHost=false,roomId="";
-const platforms=[{x:0,y:480,w:900,h:40},{x:60,y:380,w:160,h:16},{x:260,y:320,w:140,h:16},{x:460,y:260,w:130,h:16},{x:640,y:360,w:180,h:16},{x:340,y:440,w:220,h:16}];
-const GRAV=1200,MOVE=220,JUMP=480,DT=1/60;
-let keys={},lastSent=0;
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color3(0.5, 0.8, 0.95);
+    
+    // Physics
+    scene.enablePhysics(new BABYLON.Vector3(0, -9.81, 0), new BABYLON.CannonJSPlugin());
 
-function randomColor(){return`hsl(${Math.random()*360} 70% 50%)`;}
-function log(m){const d=document.createElement('div');d.textContent=m;chatLog.appendChild(d);chatLog.scrollTop=chatLog.scrollHeight;}
-function setStatus(s){statusEl.textContent=s;}
-window.addEventListener('keydown',e=>{if(e.code==='Space')e.preventDefault();keys[e.code]=true;});
-window.addEventListener('keyup',e=>keys[e.code]=false);
+    // Camera (used for debugging in non-VR)
+    const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0,2,-5), scene);
+    camera.attachControl(canvas, true);
 
-joinBtn.onclick=()=>{
-  roomId=roomIn.value.trim();if(!roomId)return alert("Enter room ID");
-  isHost=hostChk.checked;
-  startPeer();
-};
+    // Light
+    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-chatIn.onkeydown=e=>{
-  if(e.key==='Enter'&&chatIn.value.trim()){
-    const msg={type:'chat',from:myId,name:nameIn.value||myId,text:chatIn.value.trim()};
-    send(msg);
-    if(isHost)broadcast(msg,myId);
-    log("you: "+chatIn.value.trim());
-    chatIn.value="";
-  }
-};
+    // Ground
+    const ground = BABYLON.MeshBuilder.CreateGround("ground",{width:50, height:50},scene);
+    ground.physicsImpostor = new BABYLON.PhysicsImpostor(ground, BABYLON.PhysicsImpostor.BoxImpostor, {mass:0, friction:0.5, restitution:0}, scene);
+    ground.material = new BABYLON.StandardMaterial("groundMat",scene);
+    ground.material.diffuseColor = new BABYLON.Color3(0.3,0.6,0.3);
 
-function startPeer(){
-  peer=new Peer(isHost?roomId:undefined,{config:{iceServers:[{urls:'stun:stun.l.google.com:19302'}]}});
-  peer.on('open',id=>{
-    myId=id;
-    players[id]=newPlayer(id,nameIn.value||'player',myColor);
-    share.value=location.origin+location.pathname+"?room="+encodeURIComponent(roomId);
-    setStatus("Peer open: "+id);
-    if(isHost){setStatus("Hosting "+roomId);}else connectToHost();
-  });
-  peer.on('connection',c=>{
-    if(!isHost){c.close();return;}
-    connections[c.peer]=c;
-    c.on('data',d=>onData(c.peer,d));
-    c.on('close',()=>{delete connections[c.peer];delete players[c.peer];});
-    c.on('open',()=>c.send({type:'welcome',players:Object.values(players)}));
-  });
-  peer.on('error',e=>setStatus("peer error: "+e.type));
-}
+    // Player capsule made of faces
+    const player = new BABYLON.TransformNode("player", scene);
+    const head = BABYLON.MeshBuilder.CreateBox("head",{size:0.5},scene);
+    head.position.y = 1.75;
+    head.parent = player;
+    head.material = new BABYLON.StandardMaterial("headMat",scene);
+    head.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
 
-function connectToHost(){
-  const conn=peer.connect(roomId);
-  connections[roomId]=conn;
-  conn.on('open',()=>{
-    setStatus("Connected to host");
-    conn.send({type:'join',id:myId,name:nameIn.value||myId,color:myColor});
-  });
-  conn.on('data',d=>onData(roomId,d));
-  conn.on('error',()=>setStatus("connect error"));
-}
+    const body = BABYLON.MeshBuilder.CreateBox("body",{width:0.6, height:1, depth:0.3},scene);
+    body.position.y = 1;
+    body.parent = player;
+    body.material = new BABYLON.StandardMaterial("bodyMat",scene);
+    body.material.diffuseColor = new BABYLON.Color3(0.7,0.2,0.2);
 
-function newPlayer(id,name,color){
-  return {id,name,color,x:Math.random()*600+100,y:100,vx:0,vy:0,onGround:false};
-}
+    // Arm placeholders
+    const leftArm = BABYLON.MeshBuilder.CreateBox("leftArm",{width:0.15, height:0.7, depth:0.15},scene);
+    leftArm.position.set(-0.45,1.5,0);
+    leftArm.parent = player;
+    leftArm.material = new BABYLON.StandardMaterial("leftMat",scene);
+    leftArm.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
 
-function broadcast(data,except){
-  if(isHost){
-    for(const pid in connections){if(pid===except)continue;
-      const c=connections[pid];if(c.open)c.send(data);
-    }
-  }
-}
+    const rightArm = BABYLON.MeshBuilder.CreateBox("rightArm",{width:0.15, height:0.7, depth:0.15},scene);
+    rightArm.position.set(0.45,1.5,0);
+    rightArm.parent = player;
+    rightArm.material = new BABYLON.StandardMaterial("rightMat",scene);
+    rightArm.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.5);
 
-function send(data){
-  if(isHost)return; // host doesn’t send to itself
-  const c=connections[roomId];
-  if(c&&c.open)c.send(data);
-}
+    // Physics impostor for player
+    player.physicsImpostor = new BABYLON.PhysicsImpostor(body, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, friction:0.5, restitution:0}, scene);
 
-function onData(from,d){
-  if(typeof d==='string')try{d=JSON.parse(d);}catch{}
-  if(!d||!d.type)return;
-  if(d.type==='join'&&isHost){
-    players[d.id]=newPlayer(d.id,d.name,d.color);
-    broadcast({type:'player-joined',player:players[d.id]});
-    connections[d.id].send({type:'welcome',players:Object.values(players)});
-  }
-  else if(d.type==='welcome'){(d.players||[]).forEach(p=>players[p.id]=p);}
-  else if(d.type==='player-joined'){players[d.player.id]=d.player;}
-  else if(d.type==='state'){
-    if(isHost){
-      // host updates only remote player's state
-      if(d.id!==myId){
-        players[d.id]=players[d.id]||newPlayer(d.id,d.name,d.color);
-        Object.assign(players[d.id],d);
-        broadcast(d,d.id);
-      }
-    }else{
-      // client receives other players (not self)
-      if(d.id!==myId){
-        players[d.id]=players[d.id]||newPlayer(d.id,d.name,d.color);
-        Object.assign(players[d.id],d);
-      }
-    }
-  }
-  else if(d.type==='chat'){log(`${d.name}: ${d.text}`);if(isHost)broadcast(d,from);}
-}
+    // WebXR experience
+    const xrHelper = await scene.createDefaultXRExperienceAsync({
+        floorMeshes: [ground]
+    });
 
-function physics(p,dt){
-  let ax=0;if(keys['ArrowLeft']||keys['KeyA'])ax=-1;
-  if(keys['ArrowRight']||keys['KeyD'])ax=1;
-  p.vx=ax*MOVE;
-  if((keys['Space']||keys['ArrowUp']||keys['KeyW'])&&p.onGround){p.vy=-JUMP;p.onGround=false;}
-  p.vy+=GRAV*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;
-  p.onGround=false;
-  for(const pl of platforms){
-    if(p.x+12>pl.x&&p.x-12<pl.x+pl.w){
-      const prevY=p.y-p.vy*dt;
-      if(prevY+16<=pl.y&&p.y+16>=pl.y&&p.vy>=0){p.y=pl.y-16;p.vy=0;p.onGround=true;}
-    }
-  }
-  if(p.y>c.height-16){p.y=c.height-16;p.vy=0;p.onGround=true;}
-  p.x=Math.max(12,Math.min(c.width-12,p.x));
-}
+    // Arm-swing locomotion
+    const playerSpeed = 1.5; // tweak to feel right
+    scene.onBeforeRenderObservable.add(()=>{
+        if(!xrHelper.baseExperience.sessionManager.session) return;
 
-function draw(){
-  x.fillStyle="#041e26";x.fillRect(0,0,c.width,c.height);
-  x.fillStyle="#2b6b6b";platforms.forEach(p=>x.fillRect(p.x,p.y,p.w,p.h));
-  for(const p of Object.values(players)){
-    x.fillStyle=p.color;x.fillRect(p.x-12,p.y-16,24,32);
-    x.fillStyle="#fff";x.fillText(p.name,p.x-ctxWidth(p.name)/2,p.y-20);
-  }
-}
-function ctxWidth(t){return x.measureText(t).width;}
+        const leftController = xrHelper.input.leftController;
+        const rightController = xrHelper.input.rightController;
+        if(leftController && rightController){
+            const lv = leftController.getLinearVelocity() || BABYLON.Vector3.Zero();
+            const rv = rightController.getLinearVelocity() || BABYLON.Vector3.Zero();
+            const movement = lv.add(rv).scale(-playerSpeed);
+            player.physicsImpostor.applyImpulse(movement, player.getAbsolutePosition());
+        }
+    });
 
-let last=performance.now();
-function loop(now){
-  const dt=Math.min(0.05,(now-last)/1000);last=now;
-  if(myId&&players[myId])physics(players[myId],dt);
-  if(myId&&Date.now()-lastSent>50){
-    const p=players[myId];
-    const data={type:'state',...p};
-    if(isHost)broadcast(data,myId);else send(data);
-    lastSent=Date.now();
-  }
-  draw();
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
+    engine.runRenderLoop(()=>{
+        scene.render();
+    });
+
+    window.addEventListener('resize',()=>{engine.resize();});
+});
 </script>
 </body>
 </html>
