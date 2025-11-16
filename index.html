@@ -1,121 +1,372 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VR Music Game</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sandbox VR — Hands, Grab, Explosives, Ragdolls</title>
 <style>
-  body { margin: 0; overflow: hidden; }
-  #info { position: absolute; top: 10px; left: 10px; color: white; font-weight: bold; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; z-index: 10;}
-  #score { position: absolute; top: 10px; right: 10px; color: white; font-weight: bold; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px;}
+  html,body { width:100%; height:100%; margin:0; padding:0; overflow:hidden; background:#111; color:#eee; font-family:system-ui,Segoe UI,Roboto,Arial; }
+  #ui { position: absolute; left:12px; top:12px; z-index:50; background: rgba(0,0,0,0.4); padding:8px 10px; border-radius:8px; }
+  #ui b{display:block; margin-bottom:6px;}
+  #hint{font-size:13px; opacity:0.9}
+  #score { position:absolute; right:12px; top:12px; background:rgba(0,0,0,0.4); padding:8px 10px; border-radius:8px; }
+  canvas { display:block; width:100%; height:100%;}
+  a.small{color:#9cf; font-size:12px;}
 </style>
 </head>
 <body>
-<div id="info">VR: Enter VR | Hit cubes to score points!</div>
-<div id="score">Score: 0</div>
+<div id="ui">
+  <b>Sandbox VR</b>
+  <div id="hint">
+    Walk: WASD | Jump: Space | Spawn Box: B | Spawn Explosive: E | Spawn Ragdoll: R<br/>
+    VR: Enter VR, use trigger/primary button to grab / release. Throw to apply force.
+  </div>
+  <div style="margin-top:6px;"><a class="small" href="https://doc.babylonjs.com" target="_blank">Powered by Babylon.js</a></div>
+</div>
+<div id="score">Objects: <span id="count">0</span></div>
 
 <script type="module">
+/*
+  Sandbox VR single-file:
+  - Babylon.js + Cannon.js physics
+  - Keyboard walking + jumping
+  - WebXR hands / controllers with grabbing
+  - Grabbable boxes and "explosives"
+  - Explosion applies radial impulse to nearby physics objects
+  - "Ragdolls" implemented as loose physics parts
+*/
+
 import * as BABYLON from 'https://cdn.babylonjs.com/babylon.js';
 import 'https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js';
-import 'https://cdn.babylonjs.com/cannon.js';
+import 'https://cdn.babylonjs.com/cannon.js'; // provides window.CANNON
 
-const canvas = document.createElement("canvas");
+const canvas = document.createElement('canvas');
 document.body.appendChild(canvas);
 const engine = new BABYLON.Engine(canvas, true);
 
-let score = 0;
-const scoreDiv = document.getElementById("score");
+/* ---------- Scene setup ---------- */
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color3(0.06,0.07,0.1);
 
-const createScene = async function() {
-    const scene = new BABYLON.Scene(engine);
-    scene.clearColor = new BABYLON.Color3(0.1,0.1,0.2);
+/* Camera + movement */
+const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0,1.6,-6), scene);
+camera.speed = 2.5;
+camera.minZ = 0.1;
+camera.attachControl(canvas, true);
 
-    // Camera
-    const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 1.6, -5), scene);
-    camera.attachControl(canvas, true);
+/* Simple keyboard movement + jump */
+const keys = {};
+window.addEventListener('keydown', e => keys[e.code] = true);
+window.addEventListener('keyup', e => keys[e.code] = false);
+let verticalVel = 0;
+const GRAV = -9.8;
+const groundY = 0;
 
-    // Light
-    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
+/* light + simple sky */
+const light = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
+light.intensity = 1.0;
 
-    // Ground
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:20, height:20}, scene);
-    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.05,0.05,0.1);
-    ground.material = groundMat;
+const skybox = BABYLON.MeshBuilder.CreateBox("sky", {size:500}, scene);
+const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
+skyMat.backFaceCulling = false;
+skyMat.diffuseColor = new BABYLON.Color3(0.05,0.06,0.12);
+skyMat.specularColor = new BABYLON.Color3(0,0,0);
+skybox.material = skyMat;
+skybox.isPickable = false;
 
-    // Enable physics
-    scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.CannonJSPlugin());
+/* Ground */
+const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:120, height:120}, scene);
+ground.receiveShadows = true;
+const groundMat = new BABYLON.StandardMaterial("gMat", scene);
+groundMat.diffuseColor = new BABYLON.Color3(0.08,0.12,0.06);
+ground.material = groundMat;
 
-    // Music cubes
-    const cubes = [];
-    const colors = [BABYLON.Color3.Red(), BABYLON.Color3.Green(), BABYLON.Color3.Blue(), BABYLON.Color3.Yellow()];
-    for(let i=0;i<10;i++){
-        const cube = BABYLON.MeshBuilder.CreateBox("cube"+i, {size:0.5}, scene);
-        cube.position = new BABYLON.Vector3(Math.random()*8-4,1 + Math.random()*2, Math.random()*8-4);
-        const mat = new BABYLON.StandardMaterial("mat"+i, scene);
-        mat.diffuseColor = colors[i % colors.length];
-        cube.material = mat;
-        cube.physicsImpostor = new BABYLON.PhysicsImpostor(cube, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, restitution:0.7}, scene);
-        cubes.push(cube);
-    }
+/* Enable physics (Cannon.js) */
+scene.enablePhysics(new BABYLON.Vector3(0, GRAV, 0), new BABYLON.CannonJSPlugin());
 
-    // Audio
-    const music = new Audio("music.mp3");
-    music.loop = true;
-    music.volume = 0.5;
-    music.play().catch(()=>console.log("Autoplay blocked"));
+/* Keep track of grabbable objects */
+const grabbables = [];
+const countSpan = document.getElementById('count');
+function updateCount(){ countSpan.textContent = grabbables.length; }
 
-    // WebXR with hand models
-    const xr = await scene.createDefaultXRExperienceAsync({floorMeshes:[ground], optionalFeatures:["hand-tracking"]});
-    const xrInput = xr.input;
+/* Utility: create a simple dynamic box */
+function spawnBox(position, size = 0.5, color = null){
+  const b = BABYLON.MeshBuilder.CreateBox("box", {size}, scene);
+  b.position.copyFrom(position);
+  const mat = new BABYLON.StandardMaterial("mat"+grabbables.length, scene);
+  mat.diffuseColor = color || new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+  b.material = mat;
+  b.physicsImpostor = new BABYLON.PhysicsImpostor(b, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, restitution:0.2, friction:0.4}, scene);
+  grabbables.push(b);
+  updateCount();
+  return b;
+}
 
-    xrInput.onControllerAddedObservable.add((controller)=>{
-        if(controller.pointer){
-            // Use hand mesh
-            const handMesh = BABYLON.MeshBuilder.CreateBox("handVisual", {size:0.15}, scene);
-            handMesh.material = new BABYLON.StandardMaterial("handMat", scene);
-            handMesh.material.diffuseColor = BABYLON.Color3.White();
-            handMesh.parent = controller.pointer;
+/* Utility: spawn explosive (looks like a red sphere). On explode, apply radial impulse and create particles */
+function spawnExplosive(position, fuseSeconds = 2.0){
+  const s = BABYLON.MeshBuilder.CreateSphere("explosive", {diameter:0.4}, scene);
+  s.position.copyFrom(position);
+  const mat = new BABYLON.StandardMaterial("explMat", scene);
+  mat.diffuseColor = new BABYLON.Color3(0.8,0.12,0.12);
+  s.material = mat;
+  s.metadata = {isExplosive:true};
+  s.physicsImpostor = new BABYLON.PhysicsImpostor(s, BABYLON.PhysicsImpostor.SphereImpostor, {mass:1, restitution:0.1}, scene);
+  grabbables.push(s);
+  updateCount();
 
-            controller.onMotionControllerInitObservable.add((motionController)=>{
-                motionController.onButtonStateChangeObservable.add((button)=>{
-                    if(button.pressed){
-                        cubes.forEach(cube=>{
-                            if(handMesh.intersectsMesh(cube,false)){
-                                // Bounce cube
-                                cube.physicsImpostor.applyImpulse(new BABYLON.Vector3(0,5,0), cube.getAbsolutePosition());
-                                // Play sound
-                                const beep = new Audio("music.mp3");
-                                beep.currentTime = 0;
-                                beep.play();
-                                // Add score
-                                score += 1;
-                                scoreDiv.innerText = "Score: " + score;
-                                // Visual feedback
-                                cube.material.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
-                            }
-                        });
-                    }
-                });
-            });
+  // auto explode after fuseSeconds
+  setTimeout(()=>explodeAt(s.position, s), fuseSeconds*1000);
+  return s;
+}
+
+/* Explosion: apply radial impulse; create visual flash; remove explosive mesh */
+function explodeAt(position, explosiveMesh = null){
+  const R = 6;        // radius
+  const FORCE = 120;  // impulse strength
+
+  // remove explosive visual if passed
+  if(explosiveMesh){
+    try{ explosiveMesh.physicsImpostor.dispose(); explosiveMesh.dispose(); } catch(e){}
+    const idx = grabbables.indexOf(explosiveMesh);
+    if(idx>=0) grabbables.splice(idx,1);
+    updateCount();
+  }
+
+  // visual: simple sphere flash (fades)
+  const flash = BABYLON.MeshBuilder.CreateSphere("flash", {diameter:1}, scene);
+  flash.position.copyFrom(position);
+  const fmat = new BABYLON.StandardMaterial("fmat", scene);
+  fmat.emissiveColor = new BABYLON.Color3(1,0.6,0.1);
+  flash.material = fmat;
+  setTimeout(()=>{ try{ flash.dispose(); }catch(e){} }, 300);
+
+  // apply impulse to all dynamic impostors within radius
+  scene.getPhysicsEngine().getImpostors().forEach(impostor=>{
+    const mesh = impostor.object;
+    if(!mesh || mesh === ground) return;
+    const mpos = mesh.getAbsolutePosition();
+    const dir = mpos.subtract(position);
+    const dist = dir.length();
+    if(dist > R) return;
+    // normalized
+    const n = dir.normalize();
+    // scale by distance (closer -> stronger)
+    const strength = FORCE * (1 - (dist / R));
+    // apply impulse at object's center
+    const impulse = n.scale(strength);
+    impostor.applyImpulse(impulse, mpos);
+  });
+
+  // spawn some debris (loose box parts)
+  for(let i=0;i<6;i++){
+    const part = BABYLON.MeshBuilder.CreateBox("deb"+Math.random().toString(36).slice(2), {size:0.15}, scene);
+    part.position = position.add(new BABYLON.Vector3((Math.random()-0.5)*0.6, (Math.random()*0.8)+0.1, (Math.random()-0.5)*0.6));
+    part.material = new BABYLON.StandardMaterial("dmat"+i, scene);
+    part.material.diffuseColor = new BABYLON.Color3(0.6,0.6,0.6);
+    part.physicsImpostor = new BABYLON.PhysicsImpostor(part, BABYLON.PhysicsImpostor.BoxImpostor, {mass:0.6, restitution:0.2}, scene);
+    grabbables.push(part);
+  }
+  updateCount();
+}
+
+/* Ragdoll-ish spawn: a loose humanoid made of boxes (no joints for simplicity) */
+function spawnRagdoll(position){
+  const parts = [];
+  const sizes = {torso:[0.4,0.6,0.25], head:[0.28], limb:[0.18,0.5,0.18]};
+  // torso
+  const torso = BABYLON.MeshBuilder.CreateBox("rtorso",{height: sizes.torso[1], width:sizes.torso[0], depth:sizes.torso[2]}, scene);
+  torso.position = position.add(new BABYLON.Vector3(0,1.2,0));
+  torso.material = new BABYLON.StandardMaterial("tmat", scene);
+  torso.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.6);
+  torso.physicsImpostor = new BABYLON.PhysicsImpostor(torso, BABYLON.PhysicsImpostor.BoxImpostor, {mass:3, restitution:0.1}, scene);
+  parts.push(torso);
+
+  // head
+  const head = BABYLON.MeshBuilder.CreateSphere("rhead",{diameter: sizes.head[0]},scene);
+  head.position = torso.position.add(new BABYLON.Vector3(0, (sizes.torso[1]/2)+(sizes.head[0]/2), 0));
+  head.material = new BABYLON.StandardMaterial("hmat", scene);
+  head.material.diffuseColor = new BABYLON.Color3(0.9,0.8,0.7);
+  head.physicsImpostor = new BABYLON.PhysicsImpostor(head, BABYLON.PhysicsImpostor.SphereImpostor, {mass:1, restitution:0.1}, scene);
+  parts.push(head);
+
+  // limbs (4)
+  const offsets = [
+    new BABYLON.Vector3(0.45, 0.9, 0), // right arm
+    new BABYLON.Vector3(-0.45, 0.9, 0), // left arm
+    new BABYLON.Vector3(0.2, 0.4, 0), // right leg
+    new BABYLON.Vector3(-0.2, 0.4, 0) // left leg
+  ];
+  offsets.forEach((off, idx)=>{
+    const limb = BABYLON.MeshBuilder.CreateBox("limb"+idx, {height: sizes.limb[1], width: sizes.limb[0], depth: sizes.limb[2]}, scene);
+    limb.position = torso.position.add(off);
+    limb.material = new BABYLON.StandardMaterial("lmat"+idx, scene);
+    limb.material.diffuseColor = new BABYLON.Color3(0.8,0.7,0.6);
+    limb.physicsImpostor = new BABYLON.PhysicsImpostor(limb, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, restitution:0.1}, scene);
+    // give a push
+    limb.physicsImpostor.setLinearVelocity(new BABYLON.Vector3((Math.random()-0.5)*4, Math.random()*3, (Math.random()-0.5)*4));
+    parts.push(limb);
+  });
+
+  // optionally add all parts to grabbables so they can be re-grabbed
+  parts.forEach(p => { grabbables.push(p); });
+  updateCount();
+  return parts;
+}
+
+/* ---------- Input: spawn keys ---------- */
+window.addEventListener('keydown', e=>{
+  const pos = camera.position.add(camera.getDirection(new BABYLON.Vector3(0,0,1)).scale(2)); // spawn a bit in front
+  if(e.code === 'KeyB'){ spawnBox(pos, 0.5); }
+  if(e.code === 'KeyE'){ spawnExplosive(pos, 2.5); }
+  if(e.code === 'KeyR'){ spawnRagdoll(pos); }
+});
+
+/* ---------- WebXR + Hand grabbing ---------- */
+let xrHelper = null;
+const activeGrabs = new Map(); // controllerUniqueId -> {mesh, offsetLocal, impostorWasKinematic}
+
+async function enableXR(){
+  try{
+    xrHelper = await scene.createDefaultXRExperienceAsync({floorMeshes:[ground], optionalFeatures:["hand-tracking","layers"]});
+    const input = xrHelper.input;
+
+    // For each controller added, create a small visual and handle grab logic
+    input.onControllerAddedObservable.add((xrController) => {
+      // visual: small sphere at pointer
+      const vrSphere = BABYLON.MeshBuilder.CreateSphere("hvis", {diameter:0.06}, scene);
+      const mat = new BABYLON.StandardMaterial("hmat", scene);
+      mat.emissiveColor = new BABYLON.Color3(0.9,0.9,1);
+      mat.alpha = 0.9;
+      vrSphere.material = mat;
+      vrSphere.parent = xrController.pointer; // pointer follows controller pose
+
+      // helper to find nearest grabbable within reach
+      function findNearestGrabbable(maxDist = 0.25){
+        const origin = vrSphere.getAbsolutePosition();
+        let best = null, bestDist = Infinity;
+        for(const g of grabbables){
+          if(!g || g.isDisposed()) continue;
+          const d = g.getAbsolutePosition().subtract(origin).length();
+          if(d < bestDist && d <= maxDist) { bestDist = d; best = g; }
         }
-    });
+        return best;
+      }
 
-    // Animate cubes slightly
-    scene.onBeforeRenderObservable.add(()=>{
-        cubes.forEach((cube, idx)=>{
-            cube.position.y += Math.sin(Date.now()/500 + idx) * 0.002;
+      // handle primary/trigger pressed using motion controller mapping when available
+      xrController.onMotionControllerInitObservable.add((motionController)=>{
+        // fallback: check buttons state change
+        motionController.onButtonStateChangeObservable.add((button)=>{
+          if(button.pressed){
+            // press => try grab
+            if(activeGrabs.has(xrController.uniqueId)) return;
+            const target = findNearestGrabbable();
+            if(target){
+              // make kinematic: set impostor mass to 0 (approx) by switching to kinematic behavior:
+              const impostor = target.physicsImpostor;
+              const prevDynamic = !!impostor && impostor.physicsBody && impostor.mass !== 0;
+              // we will "grab" by making the object follow controller pointer manually (kinematic)
+              // store previous linear velocity optionally
+              const record = {mesh:target, prevVelocity: impostor ? impostor.getLinearVelocity() : new BABYLON.Vector3(), prevAngular: impostor ? impostor.getAngularVelocity() : new BABYLON.Vector3()};
+              activeGrabs.set(xrController.uniqueId, record);
+              // switch to kinematic by making it mass 0 impostor (dispose + recreate)
+              if(impostor){
+                impostor.sleep();
+                impostor.dispose();
+              }
+              // create new impostor with mass 0 (kinematic)
+              target.physicsImpostor = new BABYLON.PhysicsImpostor(target, BABYLON.PhysicsImpostor.BoxImpostor, {mass:0, restitution:0.2}, scene);
+              // compute local offset
+              const local = target.getAbsolutePosition().subtract(vrSphere.getAbsolutePosition());
+              record.offsetLocal = local;
+            }
+          } else {
+            // release => drop if grabbed
+            const rec = activeGrabs.get(xrController.uniqueId);
+            if(rec){
+              const mesh = rec.mesh;
+              // dispose kinematic impostor and recreate dynamic one
+              if(mesh.physicsImpostor) mesh.physicsImpostor.dispose();
+              mesh.physicsImpostor = new BABYLON.PhysicsImpostor(mesh, BABYLON.PhysicsImpostor.BoxImpostor, {mass:1, restitution:0.2}, scene);
+              // apply throw impulse based on controller linear velocity if available
+              const linear = xrController.getLinearVelocity ? xrController.getLinearVelocity() : new BABYLON.Vector3((Math.random()-0.5)*2, 1+Math.random()*2, (Math.random()-0.5)*2);
+              const angular = xrController.getAngularVelocity ? xrController.getAngularVelocity() : new BABYLON.Vector3();
+              // scale a bit for satisfying throws
+              if(mesh.physicsImpostor) mesh.physicsImpostor.applyImpulse(linear.scale(3), mesh.getAbsolutePosition());
+              // special: if the released object was explosive, trigger explosion on release
+              if(mesh.metadata && mesh.metadata.isExplosive){
+                explodeAt(mesh.getAbsolutePosition(), mesh);
+              }
+              activeGrabs.delete(xrController.uniqueId);
+            }
+          }
         });
+      });
+
+      // also support simple "squeeze" via select/trigger events (XR input)
+      xrController.onMotionControllerInitObservable.add(()=>{});
+      xrController.onMainComponentButtonStateChangedObservable?.add?.(()=>{});
+      xrController.onDetachObservable.add(()=>{
+        // cleanup
+        if(vrSphere) try{ vrSphere.dispose(); }catch(e){}
+      });
     });
+  }catch(err){
+    console.warn("XR not available:", err);
+  }
+}
 
-    return scene;
-};
+/* When grabbed objects are kinematic, update their positions to follow controller each frame */
+scene.onBeforeRenderObservable.add(()=>{
+  // keyboard movement
+  const dt = engine.getDeltaTime()/1000;
+  const forward = (keys['KeyW']?1:0) + (keys['KeyS']?-1:0);
+  const right = (keys['KeyD']?1:0) + (keys['KeyA']?-1:0);
+  const dir = camera.getDirection(new BABYLON.Vector3(0,0,1));
+  const rightVec = camera.getDirection(new BABYLON.Vector3(1,0,0));
+  camera.position.addInPlace(dir.scale(forward * camera.speed * dt));
+  camera.position.addInPlace(rightVec.scale(right * camera.speed * dt));
+  // jump simple
+  if(keys['Space'] && camera.position.y <= 1.62){
+    verticalVel = 4.2;
+  }
+  verticalVel += GRAV * dt;
+  camera.position.y += verticalVel * dt;
+  if(camera.position.y < 1.62){ camera.position.y = 1.62; verticalVel = 0; }
 
-// Top-level await works because script is type="module"
-const scene = await createScene();
+  // update kinematic grabbed objects to follow controller pointers
+  for(const [controllerId, rec] of activeGrabs.entries()){
+    // find XR controller by id
+    const controllers = xrHelper ? xrHelper.input.controllers : [];
+    const xrController = controllers.find(c => c.uniqueId === controllerId);
+    if(!xrController || !rec || !rec.mesh) { activeGrabs.delete(controllerId); continue; }
+    const pointerPos = xrController.pointer.getAbsolutePosition();
+    const targetPos = pointerPos.add(rec.offsetLocal || BABYLON.Vector3.Zero());
+    rec.mesh.position.copyFrom(targetPos);
+    rec.mesh.rotationQuaternion = xrController.pointer.rotationQuaternion ? xrController.pointer.rotationQuaternion.clone() : rec.mesh.rotationQuaternion;
+    if(rec.mesh.physicsImpostor) {
+      // sync impostor to mesh
+      rec.mesh.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0,0,0));
+      rec.mesh.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0,0,0));
+      rec.mesh.physicsImpostor.setDeltaPosition(targetPos.subtract(rec.mesh.getAbsolutePosition()));
+    }
+  }
+});
+
+/* ---------- Initial content ---------- */
+for(let i=0;i<12;i++){
+  spawnBox(new BABYLON.Vector3((Math.random()-0.5)*8,1 + Math.random()*2, (Math.random()-0.5)*8), 0.5);
+}
+updateCount();
+
+/* ---------- XR enable ---------- */
+await enableXR();
+
+/* ---------- Render loop ---------- */
 engine.runRenderLoop(()=> scene.render());
 window.addEventListener('resize', ()=> engine.resize());
-</script>
 
+/* ---------- Helpful note for local testing ---------- */
+console.log("Sandbox VR ready. Use WASD, Space, B (box), E (explosive), R (ragdoll). Enter VR to use controllers.");
+</script>
 </body>
 </html>
