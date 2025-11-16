@@ -2,216 +2,128 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>WebXR Gorilla Locomotion - Fixed</title>
-<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Gorilla Locomotion WebXR (Fixed Ground)</title>
 <style>
-  html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#6ec}
+  html,body{width:100%;height:100%;margin:0;overflow:hidden}
   canvas{width:100%;height:100%;display:block}
-  #hint{position:fixed;left:8px;bottom:8px;background:rgba(0,0,0,0.5);color:#fff;padding:6px 8px;border-radius:6px;font-family:sans-serif;font-size:13px}
 </style>
-<!-- Babylon + Ammo (physics) -->
+
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 <script src="https://cdn.babylonjs.com/ammo.js"></script>
 </head>
 <body>
-<canvas id="renderCanvas"></canvas>
-<div id="hint">Open in Quest Browser → Enter VR. Swing your arms to move.</div>
+<canvas id="canvas"></canvas>
 
 <script>
 (async function(){
-  const canvas = document.getElementById("renderCanvas");
-  const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+  const canvas = document.getElementById("canvas");
+  const engine = new BABYLON.Engine(canvas, true);
   const scene = new BABYLON.Scene(engine);
-  scene.clearColor = new BABYLON.Color3(0.48, 0.78, 0.95);
 
-  // environment
-  const env = scene.createDefaultEnvironment({ enableGroundShadow: true, groundSize: 60 });
-  env.setMainColor(new BABYLON.Color3(0.35,0.6,0.35));
+  // Light
+  new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-  const light = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0,1,0), scene);
-  light.intensity = 0.9;
+  // Load Ammo physics first
+  await Ammo();
+  const physics = new BABYLON.AmmoJSPlugin(true, Ammo);
+  scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0), physics);
 
-  // Enable physics (Ammo plugin)
-  await Ammo(); // ensure ammo loaded
-  const ammoPlugin = new BABYLON.AmmoJSPlugin(true, Ammo);
-  scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0), ammoPlugin);
+  // --------------------------------------------------------------------------------
+  // REAL GROUND (the environment ground breaks physics sometimes)
+  // --------------------------------------------------------------------------------
+  const ground = BABYLON.MeshBuilder.CreateBox("ground", {width:50, height:0.2, depth:50}, scene);
+  ground.position.y = -0.1;
+  ground.material = new BABYLON.StandardMaterial("gm", scene);
+  ground.material.diffuseColor = new BABYLON.Color3(0.3,0.7,0.4);
 
-  // Ground physics
-  env.ground.physicsImpostor = new BABYLON.PhysicsImpostor(env.ground, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, friction: 1, restitution: 0 }, scene);
+  ground.physicsImpostor = new BABYLON.PhysicsImpostor(
+    ground,
+    BABYLON.PhysicsImpostor.BoxImpostor,
+    { mass:0, friction:1, restitution:0 },
+    scene
+  );
 
-  // Simple obstacle to test collisions
-  const box = BABYLON.MeshBuilder.CreateBox("box",{size:1},scene);
-  box.position.set(2,0.5, -3);
-  box.physicsImpostor = new BABYLON.PhysicsImpostor(box, BABYLON.PhysicsImpostor.BoxImpostor, { mass:0, friction:0.8, restitution:0 }, scene);
-  box.material = new BABYLON.StandardMaterial("bmat", scene);
-  box.material.diffuseColor = new BABYLON.Color3(0.6,0.3,0.2);
-
-  // --- PLAYER BODY (capsule made to look like 'faces') ---
-  const bodyHeight = 1.2;
+  // --------------------------------------------------------------------------------
+  // PLAYER CAPSULE
+  // --------------------------------------------------------------------------------
+  const height = 1.2;
   const radius = 0.35;
-  // Use Babylon's CreateCapsule if available; fallback to cylinder + spheres if not
-  let playerCapsule;
-  try {
-    playerCapsule = BABYLON.MeshBuilder.CreateCapsule("playerCaps", { radius: radius, height: bodyHeight }, scene);
-  } catch(e){
-    // fallback
-    const cyl = BABYLON.MeshBuilder.CreateCylinder("cyl",{height: bodyHeight, diameter: radius*2},scene);
-    const s1 = BABYLON.MeshBuilder.CreateSphere("s1",{diameter:radius*2},scene);
-    const s2 = s1.createInstance("s2");
-    s1.position.y = -bodyHeight/2;
-    s2.position.y = bodyHeight/2;
-    playerCapsule = BABYLON.Mesh.MergeMeshes([cyl,s1,s2], true, false, null, false, true);
-  }
-  playerCapsule.position.y = 1.0;
 
-  // create simple "face" style head and chest (blocky look)
-  const head = BABYLON.MeshBuilder.CreateBox("head",{size:0.45}, scene);
-  head.position.y = playerCapsule.position.y + bodyHeight/2 + 0.25;
-  head.parent = playerCapsule;
-  head.material = new BABYLON.StandardMaterial("headMat", scene);
-  head.material.diffuseColor = new BABYLON.Color3(0.95,0.85,0.75);
+  let player = BABYLON.MeshBuilder.CreateCapsule("player", {height:height, radius:radius}, scene);
+  player.position.y = 1.3;
 
-  const torso = BABYLON.MeshBuilder.CreateBox("torso",{width:0.7,height:0.9,depth:0.4}, scene);
-  torso.position.y = playerCapsule.position.y;
-  torso.parent = playerCapsule;
-  torso.material = new BABYLON.StandardMaterial("torsoMat", scene);
-  torso.material.diffuseColor = new BABYLON.Color3(0.7,0.2,0.2);
+  player.physicsImpostor = new BABYLON.PhysicsImpostor(
+    player,
+    BABYLON.PhysicsImpostor.CapsuleImpostor,
+    { mass:70, friction:0.2, restitution:0 },
+    scene
+  );
 
-  // arms (visual only)
-  const leftArm = BABYLON.MeshBuilder.CreateBox("lArm",{width:0.13,height:0.8,depth:0.13}, scene);
-  leftArm.parent = playerCapsule;
-  leftArm.position.set(-0.5, playerCapsule.position.y + 0.2, 0);
-  leftArm.material = head.material;
+  // --------------------------------------------------------------------------------
+  // WebXR
+  // --------------------------------------------------------------------------------
+  const xr = await scene.createDefaultXRExperienceAsync();
+  if (xr.teleportation) xr.teleportation.dispose();
+  if (xr.pointerSelection) xr.pointerSelection.detach();
 
-  const rightArm = leftArm.createInstance("rArm");
-  rightArm.position.x = 0.5;
+  let L = null, R = null;
+  let lastL = null, lastR = null;
 
-  // physics impostor for the capsule (use sphere + box or capsule impostor)
-  // Ammo supports capsule impostor in modern versions; try capsule, else use box
-  try {
-    playerCapsule.physicsImpostor = new BABYLON.PhysicsImpostor(playerCapsule, BABYLON.PhysicsImpostor.CapsuleImpostor, { mass: 70, friction: 0.2, restitution: 0 }, scene);
-  } catch(e){
-    playerCapsule.physicsImpostor = new BABYLON.PhysicsImpostor(playerCapsule, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 70, friction: 0.2, restitution: 0 }, scene);
-  }
-
-  // Camera (we'll attach camera visually to capsule position)
-  const camera = new BABYLON.FreeCamera("cam", new BABYLON.Vector3(0,1.6,0), scene);
-  camera.minZ = 0.01;
-
-  // --- WEBXR Setup ---
-  const xr = await scene.createDefaultXRExperienceAsync({floorMeshes: [env.ground]});
-  // Remove teleportation and laser so we only use arm movement
-  if (xr.teleportation) {
-    try { xr.teleportation.dispose(); } catch(e) {}
-  }
-  if (xr.input) {
-    // disable pointer selection laser (if present)
-    if (xr.pointerSelection) {
-      try { xr.pointerSelection.detach(); } catch(e) {}
-    }
-  }
-
-  // controllers
-  let leftController = null;
-  let rightController = null;
-  let lastLeftPos = null;
-  let lastRightPos = null;
-
-  xr.input.onControllerAddedObservable.add((controller) => {
-    // controller.inputSource.handedness -> "left" or "right"
-    const hand = controller.inputSource && controller.inputSource.handedness;
-    if (hand === "left") leftController = controller;
-    if (hand === "right") rightController = controller;
+  xr.input.onControllerAddedObservable.add(c=>{
+    if (c.inputSource.handedness==="left") L=c;
+    if (c.inputSource.handedness==="right") R=c;
   });
 
-  xr.input.onControllerRemovedObservable.add((controller) => {
-    const hand = controller.inputSource && controller.inputSource.handedness;
-    if (hand === "left" && leftController === controller) { leftController = null; lastLeftPos = null; }
-    if (hand === "right" && rightController === controller) { rightController = null; lastRightPos = null; }
+  xr.input.onControllerRemovedObservable.add(c=>{
+    if (c===L){ L=null; lastL=null; }
+    if (c===R){ R=null; lastR=null; }
   });
 
-  // helper to get grip world position (safe)
-  function getGripPos(controller) {
-    if (!controller) return null;
-    // some controllers expose .grip? or .rootMesh.position
-    if (controller.grip && controller.grip.position) return controller.grip.getAbsolutePosition();
-    if (controller.rootMesh && controller.rootMesh.position) return controller.rootMesh.getAbsolutePosition();
+  function posOf(ctrl){
+    if (!ctrl) return null;
+    if (ctrl.grip) return ctrl.grip.getAbsolutePosition();
+    if (ctrl.rootMesh) return ctrl.rootMesh.getAbsolutePosition();
     return null;
   }
 
-  // Movement tuning
-  const pushScale = 1.8;      // scale of impulse applied from hand movement
-  const dampening = 0.9;      // small damp to limit build-up
-  const maxImpulse = 6.0;
+  const IMPULSE = 2.2;
 
-  // main loop: compute hand velocities and push body
-  scene.onBeforeRenderObservable.add(() => {
-    // only run movement if in VR session
-    if (!xr.baseExperience || xr.baseExperience.state !== BABYLON.WebXRState.IN_XR) {
-      // sync camera to body for non-XR preview
-      const ppos = playerCapsule.getAbsolutePosition();
-      camera.position.copyFrom(ppos.add(new BABYLON.Vector3(0, bodyHeight/2 + 0.1, 0)));
-      return;
-    }
+  scene.onBeforeRenderObservable.add(()=>{
+    if (xr.baseExperience.state !== BABYLON.WebXRState.IN_XR) return;
 
-    let movement = new BABYLON.Vector3(0,0,0);
+    let move = new BABYLON.Vector3();
 
-    // left
-    const lpos = getGripPos(leftController);
-    if (lpos) {
-      if (lastLeftPos) {
-        const delta = lpos.subtract(lastLeftPos);
-        movement.addInPlace(delta.scale(pushScale));
+    const pL = posOf(L);
+    const pR = posOf(R);
+
+    if (pL){
+      if (lastL){
+        move.addInPlace(pL.subtract(lastL).scale(IMPULSE));
       }
-      lastLeftPos = lpos.clone();
-    } else {
-      lastLeftPos = null;
+      lastL = pL.clone();
     }
-
-    // right
-    const rpos = getGripPos(rightController);
-    if (rpos) {
-      if (lastRightPos) {
-        const delta = rpos.subtract(lastRightPos);
-        movement.addInPlace(delta.scale(pushScale));
+    if (pR){
+      if (lastR){
+        move.addInPlace(pR.subtract(lastR).scale(IMPULSE));
       }
-      lastRightPos = rpos.clone();
-    } else {
-      lastRightPos = null;
+      lastR = pR.clone();
     }
 
-    // project movement onto horizontal plane (ignore vertical pushes so you don't fly)
-    movement.y = 0;
+    move.y = 0;
 
-    // limit impulse magnitude
-    const mag = movement.length();
-    if (mag > maxImpulse) movement.scaleInPlace(maxImpulse / mag);
+    player.physicsImpostor.applyImpulse(
+      move,
+      player.getAbsolutePosition()
+    );
 
-    // apply impulse to the capsule's physics body (small offset)
-    if (playerCapsule.physicsImpostor) {
-      // apply impulse at the player's center - physics expects world space vector
-      playerCapsule.physicsImpostor.applyImpulse(movement, playerCapsule.getAbsolutePosition());
-      // slight dampening to reduce stacking momentum
-      const linVel = playerCapsule.physicsImpostor.getLinearVelocity();
-      linVel.scaleInPlace(dampening);
-      playerCapsule.physicsImpostor.setLinearVelocity(linVel);
-    }
-
-    // keep camera attached to player (visual follow)
-    const bodyPos = playerCapsule.getAbsolutePosition();
-    const camTarget = bodyPos.add(new BABYLON.Vector3(0, bodyHeight/2 + 0.05, 0));
-    xr.baseExperience.camera.position.copyFrom(camTarget);
+    const cam = xr.baseExperience.camera;
+    cam.position = player.getAbsolutePosition().add(new BABYLON.Vector3(0,height/2,0));
   });
 
-  // render loop
-  engine.runRenderLoop(() => {
-    scene.render();
-  });
-
-  window.addEventListener("resize", () => engine.resize());
+  engine.runRenderLoop(()=>scene.render());
 })();
 </script>
+
 </body>
 </html>
