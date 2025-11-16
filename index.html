@@ -53,7 +53,7 @@ const createScene = async function() {
     }
 
     // Audio
-    const music = new Audio("music.mp3");
+    const music = new Audio("./music.mp3");
     music.loop = true;
     music.volume = 0.5;
     music.play().catch(()=>console.log("Autoplay blocked"));
@@ -81,7 +81,7 @@ const createScene = async function() {
                                 // Bounce cube
                                 cube.physicsImpostor.applyImpulse(new BABYLON.Vector3(0,5,0), cube.getAbsolutePosition());
                                 // Play sound
-                                const beep = new Audio("music.mp3");
+                                const beep = new Audio("./music.mp3");
                                 beep.currentTime = 0;
                                 beep.play();
                                 // Add score
