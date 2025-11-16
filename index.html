@@ -13,9 +13,12 @@
 <body>
 <div id="info">VR: Enter VR | Hit cubes to score points!</div>
 <div id="score">Score: 0</div>
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script>
+
+<script type="module">
+import * as BABYLON from 'https://cdn.babylonjs.com/babylon.js';
+import 'https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js';
+import 'https://cdn.babylonjs.com/cannon.js';
+
 const canvas = document.createElement("canvas");
 document.body.appendChild(canvas);
 const engine = new BABYLON.Engine(canvas, true);
@@ -36,8 +39,12 @@ const createScene = async function() {
 
     // Ground
     const ground = BABYLON.MeshBuilder.CreateGround("ground", {width:20, height:20}, scene);
-    ground.material = new BABYLON.StandardMaterial("groundMat", scene);
-    ground.material.diffuseColor = new BABYLON.Color3(0.05,0.05,0.1);
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+    groundMat.diffuseColor = new BABYLON.Color3(0.05,0.05,0.1);
+    ground.material = groundMat;
+
+    // Enable physics
+    scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.CannonJSPlugin());
 
     // Music cubes
     const cubes = [];
@@ -53,13 +60,10 @@ const createScene = async function() {
     }
 
     // Audio
-    const music = new Audio("./music.mp3");
+    const music = new Audio("music.mp3");
     music.loop = true;
     music.volume = 0.5;
     music.play().catch(()=>console.log("Autoplay blocked"));
-
-    // Enable physics
-    scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), new BABYLON.CannonJSPlugin());
 
     // WebXR with hand models
     const xr = await scene.createDefaultXRExperienceAsync({floorMeshes:[ground], optionalFeatures:["hand-tracking"]});
@@ -67,7 +71,7 @@ const createScene = async function() {
 
     xrInput.onControllerAddedObservable.add((controller)=>{
         if(controller.pointer){
-            // Replace sphere with hand mesh
+            // Use hand mesh
             const handMesh = BABYLON.MeshBuilder.CreateBox("handVisual", {size:0.15}, scene);
             handMesh.material = new BABYLON.StandardMaterial("handMat", scene);
             handMesh.material.diffuseColor = BABYLON.Color3.White();
@@ -81,7 +85,7 @@ const createScene = async function() {
                                 // Bounce cube
                                 cube.physicsImpostor.applyImpulse(new BABYLON.Vector3(0,5,0), cube.getAbsolutePosition());
                                 // Play sound
-                                const beep = new Audio("./music.mp3");
+                                const beep = new Audio("music.mp3");
                                 beep.currentTime = 0;
                                 beep.play();
                                 // Add score
@@ -97,9 +101,8 @@ const createScene = async function() {
         }
     });
 
-    // Move cubes slowly in a floating pattern
+    // Animate cubes slightly
     scene.onBeforeRenderObservable.add(()=>{
-        const dt = engine.getDeltaTime()/1000;
         cubes.forEach((cube, idx)=>{
             cube.position.y += Math.sin(Date.now()/500 + idx) * 0.002;
         });
@@ -108,10 +111,11 @@ const createScene = async function() {
     return scene;
 };
 
+// Top-level await works because script is type="module"
 const scene = await createScene();
 engine.runRenderLoop(()=> scene.render());
 window.addEventListener('resize', ()=> engine.resize());
 </script>
-<script src="https://cdn.babylonjs.com/cannon.js"></script>
+
 </body>
 </html>
