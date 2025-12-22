@@ -1,109 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gorilla Tag Fangame</title>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/libs/stats.module.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.153.0/examples/jsm/webxr/VRButton.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon/0.6.2/cannon.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Awsome Games Studios</title>
+    <style>
+        /* Reset some default styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e1e2f, #2a2a40);
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            margin-top: 60px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 3em;
+            color: #ffcc00;
+            text-shadow: 2px 2px 5px #000;
+        }
+
+        header p {
+            font-size: 1.2em;
+            margin-top: 10px;
+            color: #ccc;
+        }
+
+        .content {
+            margin-top: 80px;
+            text-align: center;
+            max-width: 800px;
+        }
+
+        .content h2 {
+            font-size: 2em;
+            margin-bottom: 20px;
+            color: #ffcc00;
+        }
+
+        .content p {
+            font-size: 1.1em;
+            line-height: 1.6;
+            color: #ddd;
+        }
+
+        .btn {
+            display: inline-block;
+            margin-top: 30px;
+            padding: 15px 30px;
+            background-color: #ffcc00;
+            color: #1e1e2f;
+            font-weight: bold;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #e6b800;
+        }
+
+        footer {
+            margin-top: auto;
+            padding: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 0.9em;
+        }
+
+    </style>
 </head>
-<body style="margin: 0; overflow: hidden;">
-  <script>
-    // Initialize Three.js scene
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.xr.enabled = true;
-    document.body.appendChild(renderer.domElement);
-    document.body.appendChild(VRButton.createButton(renderer));
+<body>
+    <header>
+        <h1>Awsome Games Studios</h1>
+        <p>Creating epic games, one pixel at a time</p>
+    </header>
 
-    // Add lighting
-    const light = new THREE.AmbientLight(0xffffff, 1);
-    scene.add(light);
+    <div class="content">
+        <h2>Welcome to Our Studio</h2>
+        <p>
+            Awsome Games Studios is dedicated to crafting fun, immersive, and unforgettable experiences.
+            From thrilling VR adventures to casual multiplayer games, we aim to bring joy to every player.
+        </p>
+        <a href="#" class="btn">Our Games</a>
+    </div>
 
-    // Physics world (Cannon.js)
-    const world = new CANNON.World();
-    world.gravity.set(0, -9.8, 0);
-
-    // Ground
-    const groundGeometry = new THREE.PlaneGeometry(50, 50);
-    const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
-
-    const groundBody = new CANNON.Body({
-      mass: 0,
-      shape: new CANNON.Plane(),
-    });
-    groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-    world.addBody(groundBody);
-
-    // Walls and obstacles
-    const obstacles = [];
-    function createObstacle(x, y, z, width, height, depth) {
-      const geometry = new THREE.BoxGeometry(width, height, depth);
-      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-      const obstacle = new THREE.Mesh(geometry, material);
-      obstacle.position.set(x, y, z);
-      scene.add(obstacle);
-
-      const body = new CANNON.Body({
-        mass: 0,
-        shape: new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2)),
-      });
-      body.position.set(x, y, z);
-      world.addBody(body);
-
-      obstacles.push({ mesh: obstacle, body });
-    }
-
-    createObstacle(0, 2, -5, 2, 4, 2); // Example wall
-
-    // Player hands
-    const handMaterial = new THREE.MeshBasicMaterial({ color: 0xffa500 });
-    const handLeft = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), handMaterial);
-    const handRight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), handMaterial);
-    scene.add(handLeft);
-    scene.add(handRight);
-
-    const hands = [
-      { mesh: handLeft, body: new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(0.2) }) },
-      { mesh: handRight, body: new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(0.2) }) },
-    ];
-    hands.forEach((hand) => world.addBody(hand.body));
-
-    // Update hand positions
-    function updateHandPositions() {
-      hands[0].mesh.position.copy(hands[0].body.position);
-      hands[1].mesh.position.copy(hands[1].body.position);
-    }
-
-    // Multiplayer with Socket.IO
-    const socket = io("https://your-server-url"); // Replace with your server URL
-    socket.on("player-update", (players) => {
-      // Update other players' positions
-    });
-
-    socket.emit("join-game", { id: "player1" }); // Replace with actual player data
-
-    // Animate the scene
-    function animate() {
-      world.step(1 / 60);
-
-      // Update objects with physics
-      updateHandPositions();
-
-      renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-      });
-    }
-
-    animate();
-  </script>
+    <footer>
+        &copy; 2025 Awsome Games Studios. All rights reserved.
+    </footer>
 </body>
 </html>
