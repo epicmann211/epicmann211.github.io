@@ -2,106 +2,149 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <title>Epicmann211</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Signal Menu</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+
     <style>
         body {
-            font-family: 'Roboto', sans-serif;
-            background-color: #1b1b1b;
-            color: #f5f5f5;
             margin: 0;
-            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #0f0f0f;
+            color: white;
             text-align: center;
         }
+
         header {
             padding: 40px 20px;
-            background-color: #2c2c2c;
+            background: linear-gradient(90deg, #1f1f1f, #2c2c2c);
         }
-        header img {
-            height: 80px;
-            margin: 0 10px;
-        }
+
         h1 {
-            margin: 20px 0 10px 0;
-            font-size: 2.5em;
+            margin: 0;
+            font-size: 40px;
         }
-        p {
-            font-size: 1.2em;
-            max-width: 800px;
-            margin: 0 auto 20px auto;
-        }
-        .badges img {
-            margin: 5px;
-            vertical-align: middle;
-        }
-        .buttons a {
-            display: inline-block;
-            padding: 12px 24px;
-            margin: 10px;
-            background-color: #4b4bff;
-            color: #fff;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: bold;
-            transition: background-color 0.2s;
-        }
-        .buttons a:hover {
-            background-color: #6b6bff;
-        }
-        footer {
-            margin-top: 50px;
-            padding: 20px;
-            font-size: 0.9em;
+
+        p.subtitle {
             color: #aaa;
+            margin-top: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            background: #181818;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+        }
+
+        .tab-button {
+            padding: 15px 30px;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: white;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+
+        .tab-button:hover {
+            background: #2a2a2a;
+        }
+
+        .tab-button.active {
+            background: #333;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 40px 20px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        a {
+            color: #4da6ff;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            margin-top: 40px;
+            padding: 20px;
+            color: #777;
+            font-size: 14px;
+            border-top: 1px solid #333;
         }
     </style>
 </head>
 <body>
 
 <header>
-    <img src="icon.png" alt="Logo">
-    <img src="title.png" alt="Title">
-    <h1>Signal Menu</h1>
-    <p>
-        A feature-packed mod menu for Gorilla Tag, built by 
-        <a href="https://github.com/epicmann211" style="color:#4b4bff;">nedus31gt</a>. 
-        Customize your VR experience and explore mods safely in your own projects.
-    </p>
+    <h1>Epicmann211</h1>
+    <p class="subtitle">Developer • Creator • Community Builder</p>
 </header>
 
-<div class="badges">
-    <!-- Version badge -->
-    <a href="https://github.com/epicmann211/SignalMenu/releases/latest">
-        <img src="https://img.shields.io/github/v/release/epicmann211/SignalMenu?style=for-the-badge&label=Version" alt="Latest Version">
-    </a>
-
-    <!-- Static Download badge -->
-    <a href="https://github.com/epicmann211/SignalMenu/releases/latest">
-        <img src="https://img.shields.io/badge/Download-Latest-blue?style=for-the-badge&logo=github" alt="Download Latest">
-    </a>
-
-    <!-- Discord badge -->
-    <a href="https://discord.gg/YOURDISCORDLINK">
-        <img src="https://img.shields.io/badge/Discord-Join-blueviolet?style=for-the-badge&logo=discord" alt="Discord">
-    </a>
-
-    <!-- MIT License badge -->
-    <a href="https://opensource.org/licenses/MIT">
-        <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License">
-    </a>
+<div class="tabs">
+    <button class="tab-button active" onclick="openTab('software')">Software</button>
+    <button class="tab-button" onclick="openTab('youtube')">YouTube</button>
+    <button class="tab-button" onclick="openTab('discord')">Discord</button>
 </div>
 
-<div class="buttons">
-    <a href="https://github.com/epicmann211/SignalMenu/releases/latest" target="_blank">Download Latest</a>
-    <a href="https://github.com/epicmann211/SignalMenu" target="_blank">View Source</a>
-    <a href="https://discord.gg/YOURDISCORDLINK" target="_blank">Join Discord</a>
+<div id="software" class="tab-content active">
+    <h2>🧠 Software</h2>
+    <p>Projects, tools, and experiments built by Epicmann211.</p>
+
+    <h3>SignalMenu</h3>
+    <p>A custom Gorilla Tag mod menu project focused on clean UI and functionality.</p>
+
+    <p>More projects coming soon...</p>
+</div>
+
+<div id="youtube" class="tab-content">
+    <h2>🎥 YouTube</h2>
+    <p>Gaming content, updates, and random chaos.</p>
+
+    <p>
+        Subscribe here: 
+        <a href="https://youtube.com/" target="_blank">
+            Your Channel Link Here
+        </a>
+    </p>
+</div>
+
+<div id="discord" class="tab-content">
+    <h2>💬 Discord</h2>
+    <p>Join the community, get updates, and hang out.</p>
+
+    <p>
+        Join here: 
+        <a href="https://discord.gg/" target="_blank">
+            Your Discord Invite Here
+        </a>
+    </p>
 </div>
 
 <footer>
-    &copy; 2026 Signal Menu Project. All rights reserved.<br>
-    Licensed under the MIT License.
+    © 2026 Epicmann211 | Hosted with GitHub Pages
 </footer>
+
+<script>
+    function openTab(tabId) {
+        let contents = document.querySelectorAll(".tab-content");
+        let buttons = document.querySelectorAll(".tab-button");
+
+        contents.forEach(content => content.classList.remove("active"));
+        buttons.forEach(button => button.classList.remove("active"));
+
+        document.getElementById(tabId).classList.add("active");
+        event.target.classList.add("active");
+    }
+</script>
 
 </body>
 </html>
